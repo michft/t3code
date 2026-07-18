@@ -20,7 +20,7 @@ import {
 } from "@t3tools/contracts";
 
 import { ServerConfig } from "../config.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility.ts";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
 const isSourceControlRepositoryError = Schema.is(SourceControlRepositoryError);
 
@@ -90,7 +90,7 @@ function expandHomePath(input: string, path: Path.Path): string {
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
-  const git = yield* GitVcsDriver.GitVcsDriver;
+  const git = (yield* VcsGitProviderCompatibility.VcsGitProviderCompatibility).git;
   const path = yield* Path.Path;
   const providers = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
 

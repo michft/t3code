@@ -20,7 +20,7 @@ import type {
   VcsStatusResult,
   VcsStatusStreamEvent,
 } from "@t3tools/contracts";
-import { mergeGitStatusParts } from "@t3tools/shared/git";
+import { mergeGitStatusParts, toLocalStatusPart, toRemoteStatusPart } from "@t3tools/shared/git";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 
@@ -326,6 +326,12 @@ export const make = Effect.gen(function* () {
     if (cached?.local && cached.remote) {
       return mergeGitStatusParts(cached.local.value, cached.remote.value);
     }
+    if (!cached?.local && !cached?.remote) {
+      const status = yield* workflow.status({ cwd });
+      const local = toLocalStatusPart(status);
+      const remote = local.isRepo ? toRemoteStatusPart(status) : null;
+      return yield* updateCachedStatus(cwd, local, remote);
+    }
     const [local, remote] = yield* Effect.all(
       [
         cached?.local ? Effect.succeed(cached.local.value) : workflow.localStatus({ cwd }),
@@ -370,10 +376,9 @@ export const make = Effect.gen(function* () {
       concurrency: "unbounded",
       discard: true,
     });
-    const [local, remote] = yield* Effect.all(
-      [workflow.localStatus({ cwd }), workflow.remoteStatus({ cwd })],
-      { concurrency: "unbounded" },
-    );
+    const status = yield* workflow.status({ cwd });
+    const local = toLocalStatusPart(status);
+    const remote = local.isRepo ? toRemoteStatusPart(status) : null;
     return yield* updateCachedStatus(cwd, local, remote, { publish: true });
   });
 

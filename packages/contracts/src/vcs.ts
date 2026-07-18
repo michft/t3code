@@ -25,6 +25,12 @@ export const VcsDriverCapabilities = Schema.Struct({
   supportsBookmarks: Schema.Boolean,
   supportsAtomicSnapshot: Schema.Boolean,
   supportsPushDefaultRemote: Schema.Boolean,
+  supportsWorkspaces: Schema.optional(Schema.Boolean),
+  supportsNamedPublishRefs: Schema.optional(Schema.Boolean),
+  supportsSelectedFileFinalize: Schema.optional(Schema.Boolean),
+  supportsThreadLocalRestore: Schema.optional(Schema.Boolean),
+  supportsDefaultRemotePush: Schema.optional(Schema.Boolean),
+  supportsGitProviderCompatibility: Schema.optional(Schema.Boolean),
   ignoreClassifier: Schema.Literals(["native", "git-compatible-fallback"]),
 });
 export type VcsDriverCapabilities = typeof VcsDriverCapabilities.Type;
@@ -33,6 +39,7 @@ export const VcsRepositoryIdentity = Schema.Struct({
   kind: VcsDriverKind,
   rootPath: TrimmedNonEmptyString,
   metadataPath: Schema.NullOr(TrimmedNonEmptyString),
+  colocated: Schema.optional(Schema.Boolean),
   freshness: VcsFreshness,
 });
 export type VcsRepositoryIdentity = typeof VcsRepositoryIdentity.Type;
@@ -57,6 +64,144 @@ export const VcsListRemotesResult = Schema.Struct({
   freshness: VcsFreshness,
 });
 export type VcsListRemotesResult = typeof VcsListRemotesResult.Type;
+
+export const VcsAddRemoteInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  url: TrimmedNonEmptyString,
+});
+export type VcsAddRemoteInput = typeof VcsAddRemoteInput.Type;
+
+export const VcsRemoveRemoteInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+});
+export type VcsRemoveRemoteInput = typeof VcsRemoveRemoteInput.Type;
+
+export const VcsCloneRepositoryInput = Schema.Struct({
+  kind: Schema.optional(VcsDriverKind),
+  source: TrimmedNonEmptyString,
+  destination: TrimmedNonEmptyString,
+});
+export type VcsCloneRepositoryInput = typeof VcsCloneRepositoryInput.Type;
+
+export const VcsNamedRefKind = Schema.Literals(["branch", "bookmark"]);
+export type VcsNamedRefKind = typeof VcsNamedRefKind.Type;
+
+export const VcsRevision = Schema.Struct({
+  commitId: TrimmedNonEmptyString,
+  changeId: Schema.optional(TrimmedNonEmptyString),
+});
+export type VcsRevision = typeof VcsRevision.Type;
+
+export const VcsNamedRef = Schema.Struct({
+  kind: VcsNamedRefKind,
+  name: TrimmedNonEmptyString,
+  remoteName: Schema.optional(TrimmedNonEmptyString),
+  target: Schema.optional(VcsRevision),
+});
+export type VcsNamedRef = typeof VcsNamedRef.Type;
+
+export const VcsDivergence = Schema.Struct({
+  ahead: NonNegativeInt,
+  behind: NonNegativeInt,
+  divergent: Schema.Boolean,
+});
+export type VcsDivergence = typeof VcsDivergence.Type;
+
+export const VcsConflictKind = Schema.Literals(["content", "named-ref"]);
+export type VcsConflictKind = typeof VcsConflictKind.Type;
+
+export const VcsConflict = Schema.Struct({
+  kind: VcsConflictKind,
+  path: Schema.optional(TrimmedNonEmptyString),
+  ref: Schema.optional(VcsNamedRef),
+});
+export type VcsConflict = typeof VcsConflict.Type;
+
+export const VcsTrackedRemoteState = Schema.Struct({
+  remoteName: TrimmedNonEmptyString,
+  remoteRef: VcsNamedRef,
+  divergence: VcsDivergence,
+});
+export type VcsTrackedRemoteState = typeof VcsTrackedRemoteState.Type;
+
+export const VcsWorkspaceIdentity = Schema.Struct({
+  driverKind: VcsDriverKind,
+  name: Schema.NullOr(TrimmedNonEmptyString),
+  rootPath: TrimmedNonEmptyString,
+  workspaceRevision: Schema.NullOr(VcsRevision),
+  publishRef: Schema.NullOr(VcsNamedRef),
+});
+export type VcsWorkspaceIdentity = typeof VcsWorkspaceIdentity.Type;
+
+/** Compatibility shape used while persisted Git thread fields are migrated. */
+export const VcsThreadWorkspace = Schema.Union([
+  Schema.Struct({
+    version: Schema.Literal(2),
+    workspace: VcsWorkspaceIdentity,
+  }),
+  Schema.Struct({
+    version: Schema.Literal(1),
+    branch: Schema.NullOr(TrimmedNonEmptyString),
+    worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  }),
+]);
+export type VcsThreadWorkspace = typeof VcsThreadWorkspace.Type;
+
+export const VcsWorkflowKind = Schema.Literals(["change", "workspace", "sync", "checkpoint"]);
+export type VcsWorkflowKind = typeof VcsWorkflowKind.Type;
+
+export class VcsWorkflowError extends Schema.TaggedErrorClass<VcsWorkflowError>()(
+  "VcsWorkflowError",
+  {
+    workflow: VcsWorkflowKind,
+    operation: TrimmedNonEmptyString,
+    kind: VcsDriverKind,
+    detail: TrimmedNonEmptyString,
+    recoverable: Schema.Boolean,
+  },
+) {
+  override get message(): string {
+    return `VCS ${this.workflow} workflow failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
+export const VcsActionProgressPhase = Schema.Literals([
+  "prepare-ref",
+  "finalize-change",
+  "sync",
+  "publish",
+  "change-request",
+]);
+export type VcsActionProgressPhase = typeof VcsActionProgressPhase.Type;
+
+export const VcsActionProgressEvent = Schema.Union([
+  Schema.TaggedStruct("action-started", {
+    actionId: TrimmedNonEmptyString,
+    phases: Schema.Array(VcsActionProgressPhase),
+  }),
+  Schema.TaggedStruct("phase-started", {
+    actionId: TrimmedNonEmptyString,
+    phase: VcsActionProgressPhase,
+    label: TrimmedNonEmptyString,
+  }),
+  Schema.TaggedStruct("output", {
+    actionId: TrimmedNonEmptyString,
+    phase: VcsActionProgressPhase,
+    stream: Schema.Literals(["stdout", "stderr"]),
+    text: TrimmedNonEmptyString,
+  }),
+  Schema.TaggedStruct("action-finished", {
+    actionId: TrimmedNonEmptyString,
+  }),
+  Schema.TaggedStruct("action-failed", {
+    actionId: TrimmedNonEmptyString,
+    phase: Schema.NullOr(VcsActionProgressPhase),
+    message: TrimmedNonEmptyString,
+  }),
+]);
+export type VcsActionProgressEvent = typeof VcsActionProgressEvent.Type;
 
 export interface VcsProcessErrorContext {
   readonly operation: string;
@@ -298,5 +443,6 @@ export const VcsError = Schema.Union([
   VcsProcessMissingExitCodeError,
   VcsRepositoryDetectionError,
   VcsUnsupportedOperationError,
+  VcsWorkflowError,
 ]);
 export type VcsError = typeof VcsError.Type;

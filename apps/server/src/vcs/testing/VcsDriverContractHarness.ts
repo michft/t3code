@@ -143,6 +143,9 @@ export function runVcsDriverContractSuite<R, E>(input: VcsDriverContractSuiteInp
 
           yield* input.fixture.createRepo(cwd);
           yield* input.fixture.ignorePath(cwd, "*.log");
+          yield* input.fixture.writeFile(cwd, "keep.ts", "keep\n");
+          yield* input.fixture.writeFile(cwd, "debug.log", "ignore\n");
+          yield* input.fixture.writeFile(cwd, "nested/error.log", "ignore\n");
 
           const result = yield* driver.filterIgnoredPaths(cwd, [
             "keep.ts",

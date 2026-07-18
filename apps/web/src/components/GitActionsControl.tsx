@@ -31,7 +31,13 @@ import {
   GlobeIcon,
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
-import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "~/components/Icons";
+import {
+  AzureDevOpsIcon,
+  BitbucketIcon,
+  GitHubIcon,
+  GitLabIcon,
+  JujutsuIcon,
+} from "~/components/Icons";
 import { RadioGroup } from "~/components/ui/radio-group";
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
@@ -1007,6 +1013,18 @@ export default function GitActionsControl({
     () => ({ environmentId: activeEnvironmentId, cwd: gitCwd }),
     [activeEnvironmentId, gitCwd],
   );
+  const sourceControlDiscovery = useEnvironmentQuery(
+    activeEnvironmentId === null
+      ? null
+      : sourceControlEnvironment.discovery({
+          environmentId: activeEnvironmentId,
+          input: {},
+        }),
+  );
+  const jjAvailable =
+    sourceControlDiscovery.data?.versionControlSystems.some(
+      (item) => item.kind === "jj" && item.status === "available" && item.implemented,
+    ) ?? false;
   let runGitActionWithToast: (input: RunGitActionWithToastInput) => Promise<void>;
 
   const updateActiveProgressToast = useCallback(() => {
@@ -1093,7 +1111,8 @@ export default function GitActionsControl({
     [gitStatus?.sourceControlProvider],
   );
   const changeRequestTerminology = sourceControlPresentation.terminology;
-  const SourceControlIcon = sourceControlPresentation.Icon;
+  const isJjRepository = gitStatus?.driverKind === "jj";
+  const SourceControlIcon = isJjRepository ? JujutsuIcon : sourceControlPresentation.Icon;
   // Default to true while loading so we don't flash init controls.
   const isRepo = gitStatus?.isRepo ?? true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
@@ -1105,6 +1124,7 @@ export default function GitActionsControl({
   const noneSelected = selectedFiles.length === 0;
 
   const initAction = useVcsInitAction(sourceControlScope);
+  const initJjAction = useVcsInitAction(sourceControlScope, "jj");
   const runImmediateGitAction = useGitStackedAction(sourceControlScope);
   const pullAction = useVcsPullAction(sourceControlScope);
   const isGitActionRunning = useSourceControlActionRunning(
@@ -1117,7 +1137,7 @@ export default function GitActionsControl({
     activeDraftThread.worktreePath === null;
 
   useEffect(() => {
-    if (isGitActionRunning || isSelectingWorktreeBase) {
+    if (isJjRepository || isGitActionRunning || isSelectingWorktreeBase) {
       return;
     }
 
@@ -1135,6 +1155,7 @@ export default function GitActionsControl({
     activeDraftThread?.branch,
     gitStatusForActions,
     isGitActionRunning,
+    isJjRepository,
     isSelectingWorktreeBase,
     persistThreadBranchSync,
   ]);
@@ -1648,42 +1669,70 @@ export default function GitActionsControl({
     [gitCwd, openInPreferredEditor, threadToastData],
   );
 
-  const canPublishRepository = isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
+  const canPublishRepository =
+    isRepo && !isJjRepository && gitStatusForActions !== null && !hasPrimaryRemote;
 
   if (!gitCwd) return null;
 
   return (
     <>
       {!isRepo ? (
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={initAction.isPending}
-          onClick={() => {
-            void (async () => {
-              const result = await initAction.run();
-              if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
-                return;
-              }
-              const error = squashAtomCommandFailure(result);
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title: "Git initialization failed",
-                  description: error instanceof Error ? error.message : "An error occurred.",
-                  ...(threadToastData !== undefined ? { data: threadToastData } : {}),
-                }),
-              );
-            })();
-          }}
-        >
-          <GitBranchPlusIcon className="size-3.5" aria-hidden />
-          <span className="ml-0.5">
-            {initAction.isPending ? "Initializing..." : "Initialize Git"}
-          </span>
-        </Button>
+        <Group aria-label="Initialize source control" className="shrink-0">
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={initAction.isPending}
+            onClick={() => {
+              void (async () => {
+                const result = await initAction.run();
+                if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+                const error = squashAtomCommandFailure(result);
+                toastManager.add(
+                  stackedThreadToast({
+                    type: "error",
+                    title: "Git initialization failed",
+                    description: error instanceof Error ? error.message : "An error occurred.",
+                    ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+                  }),
+                );
+              })();
+            }}
+          >
+            <GitBranchPlusIcon className="size-3.5" aria-hidden />
+            <span className="ml-0.5">
+              {initAction.isPending ? "Initializing..." : "Initialize Git"}
+            </span>
+          </Button>
+          {jjAvailable ? (
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={initJjAction.isPending}
+              onClick={() => {
+                void (async () => {
+                  const result = await initJjAction.run();
+                  if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+                  const error = squashAtomCommandFailure(result);
+                  toastManager.add(
+                    stackedThreadToast({
+                      type: "error",
+                      title: "Jujutsu initialization failed",
+                      description: error instanceof Error ? error.message : "An error occurred.",
+                      ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+                    }),
+                  );
+                })();
+              }}
+            >
+              <JujutsuIcon className="size-3.5" aria-hidden />
+              <span className="ml-0.5">
+                {initJjAction.isPending ? "Initializing..." : "Initialize Jujutsu"}
+              </span>
+            </Button>
+          ) : null}
+        </Group>
       ) : (
-        <Group aria-label="Git actions" className="shrink-0">
+        <Group aria-label="Source control actions" className="shrink-0">
           {quickActionDisabledReason ? (
             <Popover>
               <PopoverTrigger
@@ -1731,12 +1780,41 @@ export default function GitActionsControl({
             }}
           >
             <MenuTrigger
-              render={<Button aria-label="Git action options" size="icon-xs" variant="outline" />}
+              render={
+                <Button aria-label="Source control options" size="icon-xs" variant="outline" />
+              }
               disabled={isGitActionRunning}
             >
               <ChevronDownIcon aria-hidden="true" className="size-4" />
             </MenuTrigger>
             <MenuPopup align="end" className="w-full">
+              {isJjRepository && gitStatusForActions ? (
+                <div className="min-w-64 space-y-1 border-b px-2 py-2 text-xs">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-foreground">Workspace change</span>
+                    <span
+                      className="max-w-40 truncate font-mono"
+                      title={gitStatusForActions.workspaceRevision ?? undefined}
+                    >
+                      {gitStatusForActions.workspaceRevision?.slice(0, 12) ?? "Unavailable"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-foreground">Publish bookmark</span>
+                    <span>{gitStatusForActions.publishRef ?? "None"}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-foreground">Changed files</span>
+                    <span>{gitStatusForActions.workingTree.files.length}</span>
+                  </div>
+                  {(gitStatusForActions.conflicts?.length ?? 0) > 0 ? (
+                    <p className="text-warning">
+                      {gitStatusForActions.conflicts?.length} conflict
+                      {gitStatusForActions.conflicts?.length === 1 ? "" : "s"}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               {gitActionMenuItems.map((item) => {
                 const disabledReason = getMenuActionDisabledReason({
                   item,
@@ -1791,7 +1869,7 @@ export default function GitActionsControl({
                   Publish repository...
                 </MenuItem>
               ) : null}
-              {gitStatusForActions?.refName === null && (
+              {!isJjRepository && gitStatusForActions?.refName === null && (
                 <p className="px-2 py-1.5 text-xs text-warning">
                   Detached HEAD: create and checkout a refName to enable push and pull request
                   actions.

@@ -102,6 +102,7 @@ import * as VcsDriver from "./vcs/VcsDriver.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
+import * as VcsGitProviderCompatibility from "./vcs/VcsGitProviderCompatibility.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
@@ -422,8 +423,12 @@ const buildAppUnderTest = (options?: {
             expiresAt: Option.none(),
           },
         }),
+      addRemote: () => Effect.void,
+      removeRemote: () => Effect.void,
+      resolveDefaultRemote: () => Effect.succeed(null),
       filterIgnoredPaths: (_cwd, relativePaths) => Effect.succeed(relativePaths),
       initRepository: () => Effect.void,
+      cloneRepository: () => Effect.void,
       ...options?.layers?.vcsDriver,
     };
     const vcsDriverRegistryLayer = Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
@@ -482,6 +487,9 @@ const buildAppUnderTest = (options?: {
     const gitVcsDriverLayer = Layer.mock(GitVcsDriver.GitVcsDriver)({
       ...options?.layers?.gitVcsDriver,
     });
+    const gitProviderCompatibilityLayer = VcsGitProviderCompatibility.layer.pipe(
+      Layer.provide(gitVcsDriverLayer),
+    );
     const gitManagerLayer = Layer.mock(GitManager.GitManager)({
       ...options?.layers?.gitManager,
     });
@@ -511,7 +519,7 @@ const buildAppUnderTest = (options?: {
           ...options.layers.reviewService,
         })
       : ReviewService.layer.pipe(
-          Layer.provideMerge(gitVcsDriverLayer),
+          Layer.provideMerge(gitProviderCompatibilityLayer),
           Layer.provide(vcsDriverRegistryLayer),
         );
     const vcsStatusBroadcasterLayer = options?.layers?.vcsStatusBroadcaster

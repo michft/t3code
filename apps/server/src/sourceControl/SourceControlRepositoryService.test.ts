@@ -11,6 +11,7 @@ import { GitCommandError, SourceControlProviderError } from "@t3tools/contracts"
 
 import * as ServerConfig from "../config.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility.ts";
 import type * as SourceControlProvider from "./SourceControlProvider.ts";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
 import * as SourceControlRepositoryService from "./SourceControlRepositoryService.ts";
@@ -65,17 +66,19 @@ function makeLayer(input: {
       }),
     ),
     Layer.provide(
-      Layer.mock(GitVcsDriver.GitVcsDriver)({
-        execute: () => Effect.succeed(processOutput()),
-        ensureRemote: () => Effect.succeed("origin"),
-        pushCurrentBranch: () =>
-          Effect.succeed({
-            status: "pushed" as const,
-            branch: "feature/remote-v1",
-            upstreamBranch: "origin/feature/remote-v1",
-            setUpstream: true,
-          }),
-        ...input.git,
+      Layer.mock(VcsGitProviderCompatibility.VcsGitProviderCompatibility)({
+        git: {
+          execute: () => Effect.succeed(processOutput()),
+          ensureRemote: () => Effect.succeed("origin"),
+          pushCurrentBranch: () =>
+            Effect.succeed({
+              status: "pushed" as const,
+              branch: "feature/remote-v1",
+              upstreamBranch: "origin/feature/remote-v1",
+              setUpstream: true,
+            }),
+          ...input.git,
+        } as GitVcsDriver.GitVcsDriver["Service"],
       }),
     ),
     Layer.provide(

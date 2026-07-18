@@ -1,6 +1,6 @@
 # jj command contract
 
-Status: Phase 0 implemented; no production jj driver yet.
+Status: Phases 0-3 implemented; thread workspace workflows begin in Phase 4.
 
 ## Compatibility
 
@@ -40,6 +40,15 @@ The canonical templates and argv builders live in `packages/shared/src/jjCli.ts`
 - `JJ_WORKSPACE_JSON_TEMPLATE` for workspace identity and targets;
 - `JJ_OPERATION_JSON_TEMPLATE` for operation IDs and metadata.
 
+Production process/repository support lives in `apps/server/src/vcs/JjProcess.ts` and
+`apps/server/src/vcs/JjVcsDriver.ts`. Automatic detection prefers `.jj` over `.git` in
+colocated repositories.
+
+Phase 3 status reads explicitly snapshot first, then expose workspace revision metadata, changed
+files, content conflicts, local/remote bookmarks, tracked-default divergence, and bounded
+Git-format review patches. jj status keeps `refName` and `publishRef` null: a bookmark pointing at
+`@` is not treated as current or selected for publishing.
+
 `json()` performs escaping. Newlines, tabs, quotes, spaces, and Unicode therefore cannot break record boundaries. Do not replace these templates with parsing of default `jj status`, `jj log`, or graph output.
 
 ## Command mapping
@@ -58,7 +67,7 @@ Commands below omit the standard `--color=never --no-pager` prefix and repositor
 | Read changed files         | `jj log --no-graph -r <revision> -T <changed-file-json>`   | Zero or more `JjChangedFileRecord` lines                            |
 | Read patch                 | `jj diff --git -r <revision>`                              | Bounded Git-format patch, not structured metadata                   |
 | Read range patch           | `jj diff --git --from <base> --to <target>`                | Bounded Git-format patch                                            |
-| List files                 | `jj file list -r <revision> -T 'json(self) ++ "\\n"'`      | One JSON tree entry per line                                        |
+| List files                 | `jj file list -r <revision> -T 'json(path) ++ "\\n"'`      | One JSON path per line                                              |
 | Filter files               | `jj file list -r @ -T <file-json> <root-file filesets...>` | Returned exact paths are tracked/non-ignored                        |
 | List bookmarks             | `jj bookmark list --all-remotes -T <bookmark-json>`        | One serialized `CommitRef` per line                                 |
 | Create bookmark            | `jj bookmark create <quoted-symbol> -r <revision>`         | Exit status plus invalid-ref warning check                          |

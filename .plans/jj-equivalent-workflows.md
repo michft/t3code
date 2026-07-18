@@ -1,6 +1,6 @@
 # jj Equivalent Workflows Plan
 
-Status: proposed
+Status: Phases 0-3 implemented locally; Phase 4 next
 
 Scope: server, shared contracts, web, mobile, provider integrations, tests, and documentation
 
@@ -121,6 +121,8 @@ Exit criteria:
 
 ### Phase 1: make workflow contracts VCS-neutral
 
+Implementation status: implemented locally. Generic contracts, legacy Git RPC aliases, persisted-thread compatibility fields/tests, and provider Git compatibility boundary are in place.
+
 Replace Git-shaped shared models before implementing jj behavior.
 
 Tasks:
@@ -141,6 +143,8 @@ Exit criteria:
 - old persisted Git threads still open.
 
 ### Phase 2: implement the jj process and repository driver
+
+Implementation status: implemented locally. `JjProcess`, `JjVcsDriver`, registry preference, init UI, and real Git/jj driver contract tests are in place.
 
 Add `JjProcess` and `JjVcsDriver` using the same timeout, cancellation, redaction, output-limit, and error-mapping standards as Git.
 
@@ -163,6 +167,8 @@ Exit criteria:
 - command cancellation cannot leave an unobserved child process.
 
 ### Phase 3: status, refs, revisions, and diffs
+
+Implementation status: implemented locally.
 
 Model jj state directly.
 

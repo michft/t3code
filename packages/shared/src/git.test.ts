@@ -104,6 +104,18 @@ describe("applyGitStatusStreamEvent", () => {
   it("preserves local-only fields when applying a remote update", () => {
     const current: VcsStatusResult = {
       isRepo: true,
+      driverKind: "jj",
+      workspaceRevision: "change-id",
+      workspaceRevisionDetails: {
+        commitId: "commit-id",
+        changeId: "change-id",
+        description: "demo",
+        parents: ["parent-id"],
+        empty: false,
+      },
+      publishRef: null,
+      defaultRef: "main@origin",
+      conflicts: [{ kind: "content", path: "src/demo.ts" }],
       sourceControlProvider: {
         kind: "github",
         name: "GitHub",
@@ -111,7 +123,7 @@ describe("applyGitStatusStreamEvent", () => {
       },
       hasPrimaryRemote: true,
       isDefaultRef: false,
-      refName: "feature/demo",
+      refName: null,
       hasWorkingTreeChanges: true,
       workingTree: {
         files: [{ path: "src/demo.ts", insertions: 1, deletions: 0 }],
@@ -125,6 +137,7 @@ describe("applyGitStatusStreamEvent", () => {
     };
 
     const remote: VcsStatusRemoteResult = {
+      trackedRemote: { remoteName: "origin", refName: "main" },
       hasUpstream: true,
       aheadCount: 2,
       behindCount: 1,
@@ -133,6 +146,7 @@ describe("applyGitStatusStreamEvent", () => {
 
     expect(applyGitStatusStreamEvent(current, { _tag: "remoteUpdated", remote })).toEqual({
       ...current,
+      trackedRemote: { remoteName: "origin", refName: "main" },
       hasUpstream: true,
       aheadCount: 2,
       behindCount: 1,

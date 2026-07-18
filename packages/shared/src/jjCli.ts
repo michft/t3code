@@ -46,11 +46,62 @@ export interface JjChangedFileRecord {
   readonly conflict: boolean;
 }
 
+export interface JjBookmarkRecord {
+  readonly name: string;
+  readonly remote?: string;
+  readonly target: ReadonlyArray<string>;
+  readonly tracking_target?: ReadonlyArray<string>;
+}
+
+function isStringArray(value: unknown): value is ReadonlyArray<string> {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+export function isJjRevisionRecord(value: unknown): value is JjRevisionRecord {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.commitId === "string" &&
+    typeof record.changeId === "string" &&
+    typeof record.description === "string" &&
+    typeof record.conflict === "boolean" &&
+    typeof record.empty === "boolean" &&
+    isStringArray(record.parents) &&
+    Array.isArray(record.workingCopies)
+  );
+}
+
+export function isJjChangedFileRecord(value: unknown): value is JjChangedFileRecord {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.path === "string" &&
+    ["modified", "added", "removed", "copied", "renamed"].includes(String(record.status)) &&
+    typeof record.conflict === "boolean"
+  );
+}
+
+export function isJjBookmarkRecord(value: unknown): value is JjBookmarkRecord {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.name === "string" &&
+    (record.remote === undefined || typeof record.remote === "string") &&
+    isStringArray(record.target) &&
+    (record.tracking_target === undefined || isStringArray(record.tracking_target))
+  );
+}
+
 const JJ_VERSION_PATTERN =
   /(?:^|\s)(?:jj\s+)?v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+[0-9A-Za-z.-]+)?(?:\s|$)/i;
+const JJ_SOURCE_REVISION_SUFFIX_PATTERN = /-[0-9a-f]{40}$/i;
 
 export function parseJjVersionOutput(output: string): string | null {
   return output.match(JJ_VERSION_PATTERN)?.[1] ?? null;
+}
+
+function getComparableJjVersion(version: string): string {
+  return version.replace(JJ_SOURCE_REVISION_SUFFIX_PATTERN, "");
 }
 
 export function inspectJjVersion(output: string): JjVersionSupport {
@@ -62,7 +113,7 @@ export function inspectJjVersion(output: string): JjVersionSupport {
     };
   }
 
-  if (compareSemverVersions(version, JJ_MINIMUM_SUPPORTED_VERSION) < 0) {
+  if (compareSemverVersions(getComparableJjVersion(version), JJ_MINIMUM_SUPPORTED_VERSION) < 0) {
     return {
       status: "unsupported",
       version,

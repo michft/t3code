@@ -75,6 +75,22 @@ function makeTestLayer(state: {
     Layer.provideMerge(NodeServices.layer),
     Layer.provide(
       Layer.mock(GitWorkflowService.GitWorkflowService)({
+        status: () =>
+          Effect.sync(() => {
+            state.localStatusCalls += 1;
+            state.remoteStatusCalls += 1;
+            state.remoteStatusRefreshUpstreamValues?.push(undefined);
+            return {
+              ...state.currentLocalStatus,
+              ...(state.currentRemoteStatus ?? {
+                hasUpstream: false,
+                aheadCount: 0,
+                behindCount: 0,
+                aheadOfDefaultCount: 0,
+                pr: null,
+              }),
+            };
+          }),
         localStatus: () =>
           Effect.sync(() => {
             state.localStatusCalls += 1;
@@ -180,6 +196,23 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          status: () =>
+            Effect.suspend(() => {
+              state.localStatusCalls += 1;
+              state.remoteStatusCalls += 1;
+              return state.failRemoteStatus
+                ? Effect.fail(
+                    new GitManagerError({
+                      operation: "VcsStatusBroadcaster.test",
+                      cwd: "/repo",
+                      detail: "remote status failed",
+                    }),
+                  )
+                : Effect.succeed({
+                    ...state.currentLocalStatus,
+                    ...state.currentRemoteStatus,
+                  });
+            }),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -282,6 +315,16 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          status: (input) =>
+            Effect.sync(() => {
+              seenCwds.push(input.cwd, input.cwd);
+              state.localStatusCalls += 1;
+              state.remoteStatusCalls += 1;
+              return {
+                ...state.currentLocalStatus,
+                ...state.currentRemoteStatus,
+              };
+            }),
           localStatus: (input) =>
             Effect.sync(() => {
               seenCwds.push(input.cwd);

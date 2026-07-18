@@ -2,9 +2,11 @@ import { assert, it, describe } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as FileSystem from "effect/FileSystem";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as VcsProcess from "./VcsProcess.ts";
+import * as JjProcess from "./JjProcess.ts";
 import * as VcsProjectConfig from "./VcsProjectConfig.ts";
 import * as VcsDriverRegistry from "./VcsDriverRegistry.ts";
 
@@ -20,12 +22,41 @@ const normalizeGitArgs = (args: ReadonlyArray<string>): ReadonlyArray<string> =>
   args[0] === "-C" && args.length >= 2 ? args.slice(2) : args;
 
 describe("VcsDriverRegistry", () => {
+  it.layer(
+    VcsDriverRegistry.layer.pipe(
+      Layer.provideMerge(VcsProcess.layer),
+      Layer.provideMerge(NodeServices.layer),
+    ),
+  )("prefers jj when automatic detection sees a colocated repository", (it) =>
+    it.effect("detects jj before Git", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-jj-registry-" });
+        const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
+        const jj = yield* registry.get("jj");
+        yield* jj.initRepository({ cwd, kind: "jj" });
+
+        const detected = yield* registry.resolve({ cwd, requestedKind: "auto" });
+
+        assert.equal(detected.kind, "jj");
+        assert.equal(detected.repository.colocated, true);
+        assert.equal(detected.driver.capabilities.kind, "jj");
+      }),
+    ),
+  );
+
   it.effect("routes directly by VCS driver kind for non-repository workflows", () => {
     const layer = Layer.effect(VcsDriverRegistry.VcsDriverRegistry, VcsDriverRegistry.make).pipe(
       Layer.provide(NodeServices.layer),
       Layer.provide(
         Layer.mock(VcsProjectConfig.VcsProjectConfig)({
           resolveKind: (input) => Effect.succeed(input.requestedKind ?? "auto"),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(JjProcess.JjProcess)({
+          ensureSupportedVersion: () => Effect.succeed("0.42.0"),
+          run: () => Effect.succeed(processOutput("")),
         }),
       ),
       Layer.provide(
@@ -50,6 +81,12 @@ describe("VcsDriverRegistry", () => {
       Layer.provide(
         Layer.mock(VcsProjectConfig.VcsProjectConfig)({
           resolveKind: (input) => Effect.succeed(input.requestedKind ?? "auto"),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(JjProcess.JjProcess)({
+          ensureSupportedVersion: () => Effect.succeed("0.42.0"),
+          run: () => Effect.succeed(processOutput("")),
         }),
       ),
       Layer.provide(

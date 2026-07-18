@@ -3,13 +3,21 @@ import type * as Effect from "effect/Effect";
 
 import type {
   VcsDriverCapabilities,
+  VcsAddRemoteInput,
+  VcsCloneRepositoryInput,
   VcsError,
   VcsInitInput,
   VcsListRemotesResult,
+  VcsListRefsInput,
+  VcsListRefsResult,
   VcsListWorkspaceFilesResult,
+  VcsRemoveRemoteInput,
   ReviewDiffPreviewInput,
   ReviewDiffPreviewResult,
   VcsRepositoryIdentity,
+  VcsStatusInput,
+  VcsStatusLocalResult,
+  VcsStatusRemoteResult,
 } from "@t3tools/contracts";
 import { CheckpointRef } from "@t3tools/contracts";
 import * as VcsProcess from "./VcsProcess.ts";
@@ -68,11 +76,22 @@ export class VcsDriver extends Context.Service<
       cwd: string,
     ) => Effect.Effect<VcsListWorkspaceFilesResult, VcsError>;
     readonly listRemotes: (cwd: string) => Effect.Effect<VcsListRemotesResult, VcsError>;
+    readonly addRemote: (input: VcsAddRemoteInput) => Effect.Effect<void, VcsError>;
+    readonly removeRemote: (input: VcsRemoveRemoteInput) => Effect.Effect<void, VcsError>;
+    readonly resolveDefaultRemote: (cwd: string) => Effect.Effect<string | null, VcsError>;
     readonly filterIgnoredPaths: (
       cwd: string,
       relativePaths: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<string>, VcsError>;
     readonly initRepository: (input: VcsInitInput) => Effect.Effect<void, VcsError>;
+    readonly cloneRepository: (input: VcsCloneRepositoryInput) => Effect.Effect<void, VcsError>;
+    readonly getLocalStatus?: (
+      input: VcsStatusInput,
+    ) => Effect.Effect<VcsStatusLocalResult, VcsError>;
+    readonly getRemoteStatus?: (
+      input: VcsStatusInput,
+    ) => Effect.Effect<VcsStatusRemoteResult | null, VcsError>;
+    readonly listRefs?: (input: VcsListRefsInput) => Effect.Effect<VcsListRefsResult, VcsError>;
     readonly getDiffPreview?: (
       input: ReviewDiffPreviewInput,
     ) => Effect.Effect<ReviewDiffPreviewResult, VcsError>;

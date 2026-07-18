@@ -151,6 +151,28 @@ describe("when: git status is unavailable", () => {
   });
 });
 
+describe("when: repository uses jj", () => {
+  const jjStatus = status({
+    driverKind: "jj",
+    refName: null,
+    workspaceRevision: "change-id",
+    publishRef: null,
+  });
+
+  it("shows workspace-aware disabled finalization", () => {
+    assert.deepEqual(resolveQuickAction(jjStatus, false), {
+      label: "Finalize change",
+      disabled: true,
+      kind: "show_hint",
+      hint: "Jujutsu change finalization is not available yet.",
+    });
+  });
+
+  it("does not expose Git actions", () => {
+    assert.deepEqual(buildMenuItems(jjStatus, false), []);
+  });
+});
+
 describe("when: ref is clean, ahead, and has an open PR", () => {
   it("resolveQuickAction prefers push", () => {
     const quick = resolveQuickAction(

@@ -5,6 +5,9 @@ import {
   classifyJjCommandFailure,
   classifyJjRevisionCondition,
   inspectJjVersion,
+  isJjBookmarkRecord,
+  isJjChangedFileRecord,
+  isJjRevisionRecord,
   parseJjJsonLines,
   parseJjVersionOutput,
   quoteJjSymbol,
@@ -29,6 +32,17 @@ describe("jj CLI contract", () => {
       status: "supported",
       version: JJ_MINIMUM_SUPPORTED_VERSION,
     });
+  });
+
+  it("treats jj source revision suffixes as packaging metadata", () => {
+    const sourceRevision = "b8f7c455170e3273897aaf94431f8ccfb1afa7ad";
+
+    expect(inspectJjVersion(`jj 0.42.0-${sourceRevision}`)).toEqual({
+      status: "supported",
+      version: `0.42.0-${sourceRevision}`,
+    });
+    expect(inspectJjVersion(`jj 0.41.0-${sourceRevision}`).status).toBe("unsupported");
+    expect(inspectJjVersion("jj 0.42.0-rc.1").status).toBe("unsupported");
   });
 
   it("round-trips JSON lines containing control characters and Unicode", () => {
@@ -65,5 +79,31 @@ describe("jj CLI contract", () => {
   it("classifies content conflicts from structured revision data", () => {
     expect(classifyJjRevisionCondition({ conflict: true })).toBe("content-conflict");
     expect(classifyJjRevisionCondition({ conflict: false })).toBeNull();
+  });
+
+  it("validates revision, file, and bookmark machine records", () => {
+    expect(
+      isJjRevisionRecord({
+        commitId: "abc",
+        changeId: "change",
+        description: "message",
+        conflict: false,
+        empty: true,
+        parents: ["parent"],
+        workingCopies: [],
+      }),
+    ).toBe(true);
+    expect(isJjChangedFileRecord({ path: "file.txt", status: "renamed", conflict: true })).toBe(
+      true,
+    );
+    expect(
+      isJjBookmarkRecord({
+        name: "main",
+        remote: "origin",
+        target: ["abc"],
+        tracking_target: ["def"],
+      }),
+    ).toBe(true);
+    expect(isJjBookmarkRecord({ name: "broken", target: "abc" })).toBe(false);
   });
 });

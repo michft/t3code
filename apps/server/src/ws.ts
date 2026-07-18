@@ -110,6 +110,7 @@ import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProjectConfig from "./vcs/VcsProjectConfig.ts";
 import * as VcsProcess from "./vcs/VcsProcess.ts";
+import * as VcsGitProviderCompatibility from "./vcs/VcsGitProviderCompatibility.ts";
 import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
@@ -320,6 +321,13 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.vcsCreateRef, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsSwitchRef, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsInit, AuthOrchestrationOperateScope],
+  [WS_METHODS.gitPullLegacy, AuthOrchestrationOperateScope],
+  [WS_METHODS.gitRefreshStatusLegacy, AuthOrchestrationReadScope],
+  [WS_METHODS.gitListRefsLegacy, AuthOrchestrationReadScope],
+  [WS_METHODS.gitCreateWorktreeLegacy, AuthOrchestrationOperateScope],
+  [WS_METHODS.gitRemoveWorktreeLegacy, AuthOrchestrationOperateScope],
+  [WS_METHODS.gitCreateRefLegacy, AuthOrchestrationOperateScope],
+  [WS_METHODS.gitSwitchRefLegacy, AuthOrchestrationOperateScope],
   [WS_METHODS.reviewGetDiffPreview, AuthReviewWriteScope],
   [WS_METHODS.terminalOpen, AuthTerminalOperateScope],
   [WS_METHODS.terminalAttach, AuthTerminalOperateScope],
@@ -1621,7 +1629,55 @@ const makeWsRpcLayer = (
             WS_METHODS.vcsInit,
             vcsProvisioning
               .initRepository(input)
-              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+              .pipe(
+                Effect.tap(() => (input.kind === "jj" ? Effect.void : refreshGitStatus(input.cwd))),
+              ),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.gitRefreshStatusLegacy]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitRefreshStatusLegacy,
+            vcsStatusBroadcaster.refreshStatus(input.cwd),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.gitPullLegacy]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitPullLegacy,
+            gitWorkflow.pullCurrentBranch(input.cwd).pipe(
+              Effect.matchCauseEffect({
+                onFailure: (cause) => Effect.failCause(cause),
+                onSuccess: (result) =>
+                  refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true }), Effect.as(result)),
+              }),
+            ),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitListRefsLegacy]: (input) =>
+          observeRpcEffect(WS_METHODS.gitListRefsLegacy, gitWorkflow.listRefs(input), {
+            "rpc.aggregate": "vcs",
+          }),
+        [WS_METHODS.gitCreateWorktreeLegacy]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitCreateWorktreeLegacy,
+            gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.gitRemoveWorktreeLegacy]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitRemoveWorktreeLegacy,
+            gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.gitCreateRefLegacy]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitCreateRefLegacy,
+            gitWorkflow.createRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.gitSwitchRefLegacy]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitSwitchRefLegacy,
+            gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.reviewGetDiffPreview]: (input) =>
@@ -1897,6 +1953,9 @@ export const websocketRpcRouteLayer = Layer.unwrap(
                         ),
                       ),
                       Layer.provideMerge(GitVcsDriver.layer),
+                      Layer.provideMerge(
+                        VcsGitProviderCompatibility.layer.pipe(Layer.provide(GitVcsDriver.layer)),
+                      ),
                       Layer.provide(
                         VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer)),
                       ),
