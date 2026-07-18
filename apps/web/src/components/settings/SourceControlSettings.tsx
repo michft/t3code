@@ -120,8 +120,8 @@ function RedactedAccount(props: { readonly account: string | null }) {
 }
 
 function itemStatusDot(item: VcsDiscoveryItem | SourceControlProviderDiscoveryItem): string {
-  if (isVcsNotReady(item)) return "bg-muted-foreground/35";
   if (item.status !== "available") return "bg-warning";
+  if (isVcsNotReady(item)) return "bg-muted-foreground/35";
   if (isProviderDiscoveryItem(item) && item.auth.status !== "authenticated") return "bg-warning";
   return "bg-success";
 }
@@ -163,6 +163,10 @@ function itemSummary({
   readonly auth: SourceControlProviderAuth | null;
   readonly authAccount: string | null;
 }) {
+  if (item.status === "unsupported") {
+    return <span>{optionLabel(item.detail) ?? item.installHint}</span>;
+  }
+
   if (isVcsNotReady(item)) {
     return <span>Support for {item.label} is coming soon.</span>;
   }

@@ -103,7 +103,11 @@ export const SourceControlPublishRepositoryResult = Schema.Struct({
 });
 export type SourceControlPublishRepositoryResult = typeof SourceControlPublishRepositoryResult.Type;
 
-export const SourceControlDiscoveryStatus = Schema.Literals(["available", "missing"]);
+export const SourceControlDiscoveryStatus = Schema.Literals([
+  "available",
+  "missing",
+  "unsupported",
+]);
 export type SourceControlDiscoveryStatus = typeof SourceControlDiscoveryStatus.Type;
 
 export const SourceControlProviderAuthStatus = Schema.Literals([

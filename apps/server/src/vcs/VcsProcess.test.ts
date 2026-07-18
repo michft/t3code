@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import { TestClock } from "effect/testing";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
   VcsProcessExitError,
@@ -34,13 +35,14 @@ const baseInput = {
 
 const captureProcessResult = (
   result: Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>,
+  input: VcsProcess.VcsProcessInput = baseInput,
 ) =>
   VcsProcess.make.pipe(
     Effect.provideService(
       ProcessRunner.ProcessRunner,
       ProcessRunner.ProcessRunner.of({ run: () => result }),
     ),
-    Effect.flatMap((service) => service.run(baseInput)),
+    Effect.flatMap((service) => service.run(input)),
     Effect.flip,
   );
 
@@ -138,6 +140,36 @@ describe("VcsProcess.run", () => {
       expect(error.message).not.toContain(secretStderr);
       expect(error.message).not.toContain("super-secret-token");
     }).pipe(provideLive),
+  );
+
+  it.effect("classifies jj failures without retaining stderr", () =>
+    Effect.gen(function* () {
+      const secretStderr = "Working copy is stale. token super-secret-token";
+      const error = yield* captureProcessResult(
+        Effect.succeed({
+          stdout: "",
+          stderr: secretStderr,
+          code: ChildProcessSpawner.ExitCode(1),
+          timedOut: false,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        }),
+        {
+          operation: "test.jj-stale-workspace",
+          command: "jj",
+          args: ["status"],
+          cwd: process.cwd(),
+        },
+      );
+
+      expect(error).toMatchObject({
+        _tag: "VcsProcessExitError",
+        failureKind: "stale-workspace",
+        detail: "The Jujutsu workspace is stale and must be updated.",
+      });
+      expect(error.message).not.toContain(secretStderr);
+      expect(error.message).not.toContain("super-secret-token");
+    }),
   );
 
   it.effect("retains spawn causes without exposing process arguments in the error message", () =>

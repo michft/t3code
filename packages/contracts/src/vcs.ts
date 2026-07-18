@@ -76,6 +76,12 @@ export interface VcsProcessTimeoutFailure {
 export const VcsProcessExitFailureKind = Schema.Literals([
   "authentication",
   "not-found",
+  "not-repository",
+  "stale-workspace",
+  "unresolved-revision",
+  "bookmark-conflict",
+  "push-rejected",
+  "invalid-ref",
   "command-failed",
 ]);
 export type VcsProcessExitFailureKind = typeof VcsProcessExitFailureKind.Type;
@@ -131,16 +137,32 @@ export class VcsProcessExitError extends Schema.TaggedErrorClass<VcsProcessExitE
     error: VcsProcessExitFailure,
     failureKind: VcsProcessExitFailureKind,
   ) {
-    const detail =
-      failureKind === "authentication"
-        ? "Authentication failed."
-        : failureKind === "not-found"
-          ? context.command === "glab"
+    const detail = (() => {
+      switch (failureKind) {
+        case "authentication":
+          return "Authentication failed.";
+        case "not-found":
+          return context.command === "glab"
             ? "Merge request not found."
             : context.command === "gh" || context.command === "az"
               ? "Pull request not found."
-              : "VCS resource not found."
-          : "Process exited with a non-zero status.";
+              : "VCS resource not found.";
+        case "not-repository":
+          return "The directory is not inside a Jujutsu repository.";
+        case "stale-workspace":
+          return "The Jujutsu workspace is stale and must be updated.";
+        case "unresolved-revision":
+          return "The Jujutsu revision could not be resolved.";
+        case "bookmark-conflict":
+          return "The Jujutsu bookmark is conflicted.";
+        case "push-rejected":
+          return "Jujutsu rejected the push to protect remote work.";
+        case "invalid-ref":
+          return "The Jujutsu bookmark cannot be represented by the Git remote.";
+        case "command-failed":
+          return "Process exited with a non-zero status.";
+      }
+    })();
 
     return new VcsProcessExitError({
       ...context,

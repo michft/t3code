@@ -1,8 +1,10 @@
 import {
   type SourceControlDiscoveryResult,
+  type SourceControlDiscoveryStatus,
   type VcsDiscoveryItem,
   type VcsDriverKind,
 } from "@t3tools/contracts";
+import { inspectJjVersion } from "@t3tools/shared/jjCli";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -32,7 +34,7 @@ interface DiscoveryProbeResult<Kind extends string> {
   readonly label: string;
   readonly executable?: string;
   readonly implemented: boolean;
-  readonly status: "available" | "missing";
+  readonly status: SourceControlDiscoveryStatus;
   readonly version: Option.Option<string>;
   readonly installHint: string;
   readonly detail: Option.Option<string>;
@@ -98,21 +100,38 @@ export const make = Effect.gen(function* () {
         appendTruncationMarker: true,
       })
       .pipe(
-        Effect.map(
-          (result) =>
-            ({
-              kind: input.kind,
-              label: input.label,
-              executable,
-              implemented: input.implemented,
-              status: "available" as const,
-              version: Option.orElse(firstNonEmptyLine(result.stdout), () =>
-                firstNonEmptyLine(result.stderr),
-              ),
-              installHint: input.installHint,
-              detail: Option.none<string>(),
-            }) satisfies DiscoveryProbeResult<Kind>,
-        ),
+        Effect.map((result) => {
+          const version = Option.orElse(firstNonEmptyLine(result.stdout), () =>
+            firstNonEmptyLine(result.stderr),
+          );
+
+          if (input.kind === "jj" && Option.isSome(version)) {
+            const support = inspectJjVersion(version.value);
+            if (support.status !== "supported") {
+              return {
+                kind: input.kind,
+                label: input.label,
+                executable,
+                implemented: input.implemented,
+                status: "unsupported" as const,
+                version,
+                installHint: input.installHint,
+                detail: Option.some(support.detail),
+              } satisfies DiscoveryProbeResult<Kind>;
+            }
+          }
+
+          return {
+            kind: input.kind,
+            label: input.label,
+            executable,
+            implemented: input.implemented,
+            status: "available" as const,
+            version,
+            installHint: input.installHint,
+            detail: Option.none<string>(),
+          } satisfies DiscoveryProbeResult<Kind>;
+        }),
         Effect.catch((cause) =>
           Effect.succeed({
             kind: input.kind,
