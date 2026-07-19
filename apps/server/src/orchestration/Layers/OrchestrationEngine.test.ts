@@ -535,6 +535,19 @@ describe("OrchestrationEngine", () => {
     const { engine } = system;
     const createdAt = now();
 
+    const vcsWorkspace = {
+      driverKind: "jj" as const,
+      name: "thread-worktree-bootstrap",
+      rootPath: "/tmp/project-worktree-bootstrap-worktree",
+      workspaceRevision: {
+        commitId: "commit-1",
+        changeId: "change-1",
+      },
+      publishRef: {
+        kind: "bookmark" as const,
+        name: "t3code/1234abcd",
+      },
+    };
     await system.run(
       engine.dispatch({
         type: "project.create",
@@ -574,12 +587,20 @@ describe("OrchestrationEngine", () => {
         threadId: ThreadId.make("thread-worktree-bootstrap"),
         branch: "t3code/1234abcd",
         worktreePath: "/tmp/project-worktree-bootstrap-worktree",
+        vcsWorkspace,
       }),
     );
 
     const snapshot = await system.readModel();
     expect(snapshot.threads[0]?.branch).toBe("t3code/1234abcd");
     expect(snapshot.threads[0]?.worktreePath).toBe("/tmp/project-worktree-bootstrap-worktree");
+    const events = await system.run(
+      Stream.runCollect(engine.readEvents(0)).pipe(
+        Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
+      ),
+    );
+    const metaUpdated = events.find((event) => event.type === "thread.meta-updated");
+    expect(metaUpdated?.payload.vcsWorkspace).toEqual(vcsWorkspace);
     await system.dispose();
   });
 

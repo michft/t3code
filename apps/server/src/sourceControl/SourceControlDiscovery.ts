@@ -101,12 +101,10 @@ export const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.map((result) => {
-          const version = Option.orElse(firstNonEmptyLine(result.stdout), () =>
-            firstNonEmptyLine(result.stderr),
-          );
-
-          if (input.kind === "jj" && Option.isSome(version)) {
-            const support = inspectJjVersion(version.value);
+          if (input.kind === "jj") {
+            const support = inspectJjVersion([result.stdout, result.stderr].join("\n"));
+            const version =
+              support.status === "invalid" ? Option.none<string>() : Option.some(support.version);
             if (support.status !== "supported") {
               return {
                 kind: input.kind,
@@ -119,7 +117,22 @@ export const make = Effect.gen(function* () {
                 detail: Option.some(support.detail),
               } satisfies DiscoveryProbeResult<Kind>;
             }
+
+            return {
+              kind: input.kind,
+              label: input.label,
+              executable,
+              implemented: input.implemented,
+              status: "available" as const,
+              version,
+              installHint: input.installHint,
+              detail: Option.none<string>(),
+            } satisfies DiscoveryProbeResult<Kind>;
           }
+
+          const version = Option.orElse(firstNonEmptyLine(result.stdout), () =>
+            firstNonEmptyLine(result.stderr),
+          );
 
           return {
             kind: input.kind,

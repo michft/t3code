@@ -112,11 +112,16 @@ export type VcsDivergence = typeof VcsDivergence.Type;
 export const VcsConflictKind = Schema.Literals(["content", "named-ref"]);
 export type VcsConflictKind = typeof VcsConflictKind.Type;
 
-export const VcsConflict = Schema.Struct({
-  kind: VcsConflictKind,
-  path: Schema.optional(TrimmedNonEmptyString),
-  ref: Schema.optional(VcsNamedRef),
-});
+export const VcsConflict = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("content"),
+    path: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("named-ref"),
+    ref: VcsNamedRef,
+  }),
+]);
 export type VcsConflict = typeof VcsConflict.Type;
 
 export const VcsTrackedRemoteState = Schema.Struct({
@@ -190,7 +195,7 @@ export const VcsActionProgressEvent = Schema.Union([
     actionId: TrimmedNonEmptyString,
     phase: VcsActionProgressPhase,
     stream: Schema.Literals(["stdout", "stderr"]),
-    text: TrimmedNonEmptyString,
+    text: Schema.String,
   }),
   Schema.TaggedStruct("action-finished", {
     actionId: TrimmedNonEmptyString,

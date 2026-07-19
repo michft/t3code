@@ -52,9 +52,20 @@ function parseRecords<T>(input: {
   readonly operation: string;
   readonly cwd: string;
   readonly output: string;
+  readonly truncated: boolean;
   readonly guard: (value: unknown) => value is T;
   readonly label: string;
 }) {
+  if (input.truncated) {
+    return Effect.fail(
+      dataContractError(
+        input.operation,
+        input.cwd,
+        `jj returned truncated ${input.label} machine output.`,
+      ),
+    );
+  }
+
   return Effect.try({
     try: () => {
       const records = parseJjJsonLines(input.output);
@@ -91,18 +102,19 @@ export function collectJjStatusConflicts(input: {
   readonly revision: Pick<JjRevisionRecord, "conflict">;
   readonly changedFiles: ReadonlyArray<Pick<JjChangedFileRecord, "path" | "conflict">>;
   readonly bookmarks: ReadonlyArray<Pick<JjBookmarkRecord, "name" | "remote" | "target">>;
-}): ReadonlyArray<{
-  readonly kind: "content" | "named-ref";
-  readonly path?: string;
-  readonly refName?: string;
-}> {
-  const contentConflicts: Array<{ readonly kind: "content"; readonly path?: string }> =
-    input.changedFiles
-      .filter((file) => file.conflict)
-      .map((file) => ({ kind: "content", path: file.path }));
-  if (input.revision.conflict && contentConflicts.length === 0) {
-    contentConflicts.push({ kind: "content" });
-  }
+}): ReadonlyArray<
+  | {
+      readonly kind: "content";
+      readonly path: string;
+    }
+  | {
+      readonly kind: "named-ref";
+      readonly refName: string;
+    }
+> {
+  const contentConflicts = input.changedFiles
+    .filter((file) => file.conflict)
+    .map((file) => ({ kind: "content" as const, path: file.path }));
   const namedRefConflicts = input.bookmarks
     .filter((bookmark) => bookmark.target.length > 1)
     .map((bookmark) => ({
@@ -183,6 +195,7 @@ export const make = Effect.gen(function* () {
       repository: input.cwd,
       args: input.args,
       ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
+      ...(input.env !== undefined ? { env: input.env } : {}),
       ...(input.allowNonZeroExit !== undefined ? { allowNonZeroExit: input.allowNonZeroExit } : {}),
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
       ...(input.maxOutputBytes !== undefined ? { maxOutputBytes: input.maxOutputBytes } : {}),
@@ -220,6 +233,7 @@ export const make = Effect.gen(function* () {
       operation,
       cwd,
       output: result.stdout,
+      truncated: result.stdoutTruncated,
       guard: isJjRevisionRecord,
       label: "revision",
     });
@@ -257,6 +271,7 @@ export const make = Effect.gen(function* () {
       operation,
       cwd,
       output: result.stdout,
+      truncated: result.stdoutTruncated,
       guard: isJjChangedFileRecord,
       label: "changed-file",
     });
@@ -276,6 +291,7 @@ export const make = Effect.gen(function* () {
       operation,
       cwd,
       output: result.stdout,
+      truncated: result.stdoutTruncated,
       guard: isJjBookmarkRecord,
       label: "bookmark",
     });
@@ -372,6 +388,13 @@ export const make = Effect.gen(function* () {
       maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
       appendTruncationMarker: false,
     });
+    if (result.stdoutTruncated) {
+      return yield* dataContractError(
+        "JjVcsDriver.listWorkspaceFiles",
+        cwd,
+        "jj file list returned truncated machine output.",
+      );
+    }
     const records = parseJjJsonLines(result.stdout);
     const paths = records.flatMap((record) => (typeof record === "string" ? [record] : []));
     if (paths.length !== records.length) {
@@ -520,6 +543,13 @@ export const make = Effect.gen(function* () {
     "JjVcsDriver.getLocalStatus",
   )(function* (input) {
     const state = yield* readStatusState(input.cwd);
+    if (state.patchResult.stdoutTruncated) {
+      return yield* dataContractError(
+        "JjVcsDriver.getLocalStatus.diffStats",
+        input.cwd,
+        "jj status patch output was truncated.",
+      );
+    }
     const parsedStats = yield* Effect.try({
       try: () => parseTurnDiffFilesFromUnifiedDiff(state.patchResult.stdout),
       catch: () =>
@@ -578,9 +608,10 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     const state = yield* readReferenceState(input.cwd);
     const remoteBookmark = state.defaultRemoteBookmark;
-    const remoteTarget = remoteBookmark?.target.length === 1 ? remoteBookmark.target[0] : null;
+    const trackingTarget =
+      remoteBookmark?.tracking_target?.length === 1 ? remoteBookmark.tracking_target[0] : null;
     const workspaceBase = state.revision.parents[0] ?? null;
-    if (!remoteBookmark || !state.defaultRemoteName || !remoteTarget || !workspaceBase) {
+    if (!remoteBookmark || !state.defaultRemoteName || !trackingTarget || !workspaceBase) {
       return {
         trackedRemote: null,
         hasUpstream: false,
@@ -590,12 +621,12 @@ export const make = Effect.gen(function* () {
         pr: null,
       };
     }
-    const quotedRemoteTarget = quoteJjSymbol(remoteTarget);
+    const quotedTrackingTarget = quoteJjSymbol(trackingTarget);
     const quotedWorkspaceBase = quoteJjSymbol(workspaceBase);
     const [aheadCount, behindCount] = yield* Effect.all(
       [
-        countRevisionRange(input.cwd, `${quotedRemoteTarget}..${quotedWorkspaceBase}`),
-        countRevisionRange(input.cwd, `${quotedWorkspaceBase}..${quotedRemoteTarget}`),
+        countRevisionRange(input.cwd, `${quotedTrackingTarget}..${quotedWorkspaceBase}`),
+        countRevisionRange(input.cwd, `${quotedWorkspaceBase}..${quotedTrackingTarget}`),
       ],
       { concurrency: "unbounded" },
     );
@@ -642,45 +673,26 @@ export const make = Effect.gen(function* () {
         .filter((bookmark) => bookmark.remote === undefined)
         .map((bookmark) => [bookmark.name, bookmark]),
     );
-    const refs = yield* Effect.forEach(
-      usableBookmarks,
-      (bookmark) =>
-        Effect.gen(function* () {
-          const isRemote = bookmark.remote !== undefined;
-          const local = isRemote ? localByName.get(bookmark.name) : undefined;
-          const target = bookmark.target.length === 1 ? bookmark.target[0] : null;
-          let aheadCount = 0;
-          let behindCount = 0;
-          if (isRemote && local?.target.length === 1 && target) {
-            const localTarget = quoteJjSymbol(local.target[0] as string);
-            const remoteTarget = quoteJjSymbol(target);
-            [aheadCount, behindCount] = yield* Effect.all(
-              [
-                countRevisionRange(input.cwd, `${remoteTarget}..${localTarget}`),
-                countRevisionRange(input.cwd, `${localTarget}..${remoteTarget}`),
-              ],
-              { concurrency: "unbounded" },
-            );
-          }
-          return {
-            kind: "bookmark" as const,
-            name: remoteBookmarkName(bookmark),
-            ...(isRemote ? { isRemote: true, remoteName: bookmark.remote } : { isRemote: false }),
-            tracked: isRemote && bookmark.tracking_target !== undefined,
-            conflicted: bookmark.target.length > 1,
-            targetRevision: target,
-            aheadCount,
-            behindCount,
-            current: false,
-            isDefault:
-              defaultRemoteBookmark !== null &&
-              bookmark.name === defaultRemoteBookmark.name &&
-              bookmark.remote === defaultRemoteBookmark.remote,
-            worktreePath: null,
-          } satisfies VcsRef;
-        }),
-      { concurrency: 4 },
+    const bookmarkByRefName = new Map(
+      usableBookmarks.map((bookmark) => [remoteBookmarkName(bookmark), bookmark]),
     );
+    const refs: ReadonlyArray<VcsRef> = usableBookmarks.map((bookmark) => {
+      const isRemote = bookmark.remote !== undefined;
+      return {
+        kind: "bookmark",
+        name: remoteBookmarkName(bookmark),
+        ...(isRemote ? { isRemote: true, remoteName: bookmark.remote } : { isRemote: false }),
+        tracked: isRemote && bookmark.tracking_target !== undefined,
+        conflicted: bookmark.target.length > 1,
+        targetRevision: bookmark.target.length === 1 ? bookmark.target[0] : null,
+        current: false,
+        isDefault:
+          defaultRemoteBookmark !== null &&
+          bookmark.name === defaultRemoteBookmark.name &&
+          bookmark.remote === defaultRemoteBookmark.remote,
+        worktreePath: null,
+      } satisfies VcsRef;
+    });
     const localNames = new Set(
       refs.filter((ref) => !ref.isRemote).map((ref) => ref.name.toLocaleLowerCase()),
     );
@@ -705,8 +717,34 @@ export const make = Effect.gen(function* () {
         return leftPriority - rightPriority || left.name.localeCompare(right.name);
       });
     const page = paginateRefs(filteredRefs, input);
+    const pageRefs = yield* Effect.forEach(
+      page.refs,
+      (ref) =>
+        Effect.gen(function* () {
+          let aheadCount = 0;
+          let behindCount = 0;
+          if (ref.isRemote) {
+            const bookmark = bookmarkByRefName.get(ref.name);
+            const local = bookmark ? localByName.get(bookmark.name) : undefined;
+            const remoteTarget = ref.targetRevision;
+            if (local?.target.length === 1 && remoteTarget) {
+              const quotedLocalTarget = quoteJjSymbol(local.target[0] as string);
+              const quotedRemoteTarget = quoteJjSymbol(remoteTarget);
+              [aheadCount, behindCount] = yield* Effect.all(
+                [
+                  countRevisionRange(input.cwd, `${quotedRemoteTarget}..${quotedLocalTarget}`),
+                  countRevisionRange(input.cwd, `${quotedLocalTarget}..${quotedRemoteTarget}`),
+                ],
+                { concurrency: "unbounded" },
+              );
+            }
+          }
+          return { ...ref, aheadCount, behindCount };
+        }),
+      { concurrency: 4 },
+    );
     return {
-      refs: [...page.refs],
+      refs: pageRefs,
       isRepo: true,
       hasPrimaryRemote: defaultRemoteName !== null,
       nextCursor: page.nextCursor,

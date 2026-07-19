@@ -50,3 +50,28 @@ it.effect("rejects unsupported jj versions with actionable detail", () =>
     ),
   ),
 );
+
+it.effect("forwards execution environment variables", () => {
+  let observedEnv: NodeJS.ProcessEnv | undefined;
+  const layer = Layer.effect(JjProcess.JjProcess, JjProcess.make).pipe(
+    Layer.provide(
+      Layer.mock(VcsProcess.VcsProcess)({
+        run: (input) => {
+          observedEnv = input.env;
+          return Effect.succeed(output(""));
+        },
+      }),
+    ),
+  );
+
+  return Effect.gen(function* () {
+    const process = yield* JjProcess.JjProcess;
+    yield* process.run({
+      operation: "JjProcess.test.env",
+      cwd: "/repo",
+      args: ["status"],
+      env: { JJ_USER: "T3 Code" },
+    });
+    assert.deepStrictEqual(observedEnv, { JJ_USER: "T3 Code" });
+  }).pipe(Effect.provide(layer));
+});

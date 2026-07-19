@@ -22,15 +22,22 @@ pnpm test:jj-phase-zero
 
 ## Machine-output rules
 
-All data-producing commands must:
+All commands must:
 
 - pass arguments as an argv array, never through a shell command string;
 - use `--color=never` and `--no-pager`;
-- provide an explicit template;
-- emit one JSON value per line;
-- decode every line with `JSON.parse`;
 - treat stdout as bounded untrusted input;
 - treat stderr as diagnostic input only, never as repository data.
+
+Commands returning machine metadata must additionally:
+
+- provide an explicit template;
+- emit one JSON value per line;
+- decode every metadata line with `JSON.parse`.
+
+Git-format patch commands and `jj git remote list` are not machine-metadata commands. Patch output
+remains bounded Git-format text, while remote-list output uses jj's documented non-template line
+format until jj provides structured template output.
 
 The canonical templates and argv builders live in `packages/shared/src/jjCli.ts`:
 

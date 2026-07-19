@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
-import { VcsNamedRef, VcsThreadWorkspace, VcsWorkspaceIdentity } from "./vcs.ts";
+import {
+  VcsActionProgressEvent,
+  VcsConflict,
+  VcsNamedRef,
+  VcsThreadWorkspace,
+  VcsWorkspaceIdentity,
+} from "./vcs.ts";
 
 const decodeThreadWorkspace = Schema.decodeUnknownSync(VcsThreadWorkspace);
 const encodeThreadWorkspace = Schema.encodeSync(VcsThreadWorkspace);
 const decodeWorkspaceIdentity = Schema.decodeUnknownSync(VcsWorkspaceIdentity);
 const decodeNamedRef = Schema.decodeUnknownSync(VcsNamedRef);
+const decodeConflict = Schema.decodeUnknownSync(VcsConflict);
+const decodeActionProgressEvent = Schema.decodeUnknownSync(VcsActionProgressEvent);
 
 describe("VCS-neutral persistence contracts", () => {
   it("reads legacy Git thread workspace metadata", () => {
@@ -46,5 +54,37 @@ describe("VCS-neutral persistence contracts", () => {
         name: "main",
       }),
     ).toEqual({ kind: "bookmark", name: "main" });
+  });
+
+  it("requires variant-specific conflict details", () => {
+    expect(decodeConflict({ kind: "content", path: "conflicted.txt" })).toEqual({
+      kind: "content",
+      path: "conflicted.txt",
+    });
+    expect(decodeConflict({ kind: "named-ref", ref: { kind: "bookmark", name: "main" } })).toEqual({
+      kind: "named-ref",
+      ref: { kind: "bookmark", name: "main" },
+    });
+    expect(() => decodeConflict({ kind: "content" })).toThrow();
+    expect(() => decodeConflict({ kind: "named-ref" })).toThrow();
+  });
+
+  it("preserves raw action output text", () => {
+    const text = "  indented\n\n";
+    expect(
+      decodeActionProgressEvent({
+        _tag: "output",
+        actionId: "action-1",
+        phase: "sync",
+        stream: "stdout",
+        text,
+      }),
+    ).toEqual({
+      _tag: "output",
+      actionId: "action-1",
+      phase: "sync",
+      stream: "stdout",
+      text,
+    });
   });
 });

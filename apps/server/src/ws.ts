@@ -1629,9 +1629,7 @@ const makeWsRpcLayer = (
             WS_METHODS.vcsInit,
             vcsProvisioning
               .initRepository(input)
-              .pipe(
-                Effect.tap(() => (input.kind === "jj" ? Effect.void : refreshGitStatus(input.cwd))),
-              ),
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.gitRefreshStatusLegacy]: (input) =>

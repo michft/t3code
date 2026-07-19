@@ -23,6 +23,9 @@ on:
       - "scripts/jj-phase-zero-smoke.ts"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   contract:
     name: ${{ matrix.os }} / ${{ matrix.jj_tool }}
@@ -41,10 +44,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: package.json
 
@@ -55,7 +60,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts --filter @t3tools/scripts...
 
       - name: Install Jujutsu
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
           tool: ${{ matrix.jj_tool }}
 

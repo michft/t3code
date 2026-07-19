@@ -14,6 +14,7 @@ export interface JjProcessInput {
   readonly args: ReadonlyArray<string>;
   readonly repository?: string;
   readonly stdin?: string;
+  readonly env?: NodeJS.ProcessEnv;
   readonly allowNonZeroExit?: boolean;
   readonly timeoutMs?: number;
   readonly maxOutputBytes?: number;
@@ -62,6 +63,7 @@ export const make = Effect.gen(function* () {
       cwd: input.cwd,
       spawnCwd: input.repository ?? globalThis.process.cwd(),
       ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
+      ...(input.env !== undefined ? { env: input.env } : {}),
       ...(input.allowNonZeroExit !== undefined ? { allowNonZeroExit: input.allowNonZeroExit } : {}),
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
       ...(input.maxOutputBytes !== undefined ? { maxOutputBytes: input.maxOutputBytes } : {}),

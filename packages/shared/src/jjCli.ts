@@ -76,7 +76,8 @@ export function isJjChangedFileRecord(value: unknown): value is JjChangedFileRec
   const record = value as Record<string, unknown>;
   return (
     typeof record.path === "string" &&
-    ["modified", "added", "removed", "copied", "renamed"].includes(String(record.status)) &&
+    typeof record.status === "string" &&
+    ["modified", "added", "removed", "copied", "renamed"].includes(record.status) &&
     typeof record.conflict === "boolean"
   );
 }

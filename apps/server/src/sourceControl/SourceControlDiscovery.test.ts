@@ -284,13 +284,17 @@ Logged in to gitlab.com as gitlab-user
 });
 
 it.effect("reports unsupported jj versions with an actionable minimum", () => {
+  let jjOutput = {
+    stdout: "warning: development build\n",
+    stderr: "jj 0.41.0\n",
+  };
   const processMock = {
     run: (input: VcsProcess.VcsProcessInput) => {
       if (input.command === "git") {
         return Effect.succeed(processOutput("git version 2.51.0\n"));
       }
       if (input.command === "jj") {
-        return Effect.succeed(processOutput("jj 0.41.0\n"));
+        return Effect.sync(() => processOutput(jjOutput.stdout, { stderr: jjOutput.stderr }));
       }
       return Effect.fail(
         new VcsProcessSpawnError({
@@ -336,5 +340,12 @@ it.effect("reports unsupported jj versions with an actionable minimum", () => {
       Option.getOrNull(jj.detail),
       `Jujutsu 0.41.0 is unsupported. T3 Code requires jj ${JJ_MINIMUM_SUPPORTED_VERSION} or newer.`,
     );
+
+    jjOutput = { stdout: "", stderr: "" };
+    const emptyResult = yield* discovery.discover;
+    const emptyJj = emptyResult.versionControlSystems.find((item) => item.kind === "jj");
+    assert.ok(emptyJj);
+    assert.strictEqual(emptyJj.status, "unsupported");
+    assert.isTrue(Option.isNone(emptyJj.version));
   }).pipe(Effect.provide(testLayer));
 });

@@ -6,6 +6,7 @@ import {
   ThreadId,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
+import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -98,6 +99,64 @@ describe("orchestration projector", () => {
       },
     ]);
   });
+
+  effectIt.effect("replays vcs workspace metadata updates", () =>
+    Effect.gen(function* () {
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const updatedAt = "2026-01-01T00:00:01.000Z";
+      const afterCreate = yield* projectEvent(
+        createEmptyReadModel(createdAt),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: createdAt,
+          commandId: "cmd-thread-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "demo",
+            modelSelection: {
+              provider: ProviderDriverKind.make("codex"),
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      );
+      const vcsWorkspace = {
+        driverKind: "jj",
+        name: "thread-1",
+        rootPath: "/repo/thread-1",
+        workspaceRevision: { commitId: "commit-1", changeId: "change-1" },
+        publishRef: { kind: "bookmark", name: "t3code/thread-1" },
+      };
+
+      const next = yield* projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.meta-updated",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: updatedAt,
+          commandId: "cmd-thread-meta-update",
+          payload: {
+            threadId: "thread-1",
+            vcsWorkspace,
+            updatedAt,
+          },
+        }),
+      );
+
+      expect(next.threads[0]?.vcsWorkspace).toEqual(vcsWorkspace);
+    }),
+  );
 
   it("fails when event payload cannot be decoded by runtime schema", async () => {
     const now = "2026-01-01T00:00:00.000Z";

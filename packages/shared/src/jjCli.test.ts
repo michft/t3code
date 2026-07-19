@@ -96,6 +96,9 @@ describe("jj CLI contract", () => {
     expect(isJjChangedFileRecord({ path: "file.txt", status: "renamed", conflict: true })).toBe(
       true,
     );
+    expect(isJjChangedFileRecord({ path: "file.txt", status: ["renamed"], conflict: true })).toBe(
+      false,
+    );
     expect(
       isJjBookmarkRecord({
         name: "main",

@@ -223,11 +223,16 @@ const VcsStatusLocalShape = {
   defaultRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
   conflicts: Schema.optional(
     Schema.Array(
-      Schema.Struct({
-        kind: Schema.Literals(["content", "named-ref"]),
-        path: Schema.optional(TrimmedNonEmptyStringSchema),
-        refName: Schema.optional(TrimmedNonEmptyStringSchema),
-      }),
+      Schema.Union([
+        Schema.Struct({
+          kind: Schema.Literal("content"),
+          path: TrimmedNonEmptyStringSchema,
+        }),
+        Schema.Struct({
+          kind: Schema.Literal("named-ref"),
+          refName: TrimmedNonEmptyStringSchema,
+        }),
+      ]),
     ),
   ),
   sourceControlProvider: Schema.optional(SourceControlProviderInfo),
