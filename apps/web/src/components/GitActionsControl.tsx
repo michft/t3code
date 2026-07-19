@@ -4,6 +4,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { getVcsPresentation } from "@t3tools/client-runtime/state/vcs";
 import type {
   GitActionProgressEvent,
   GitRunStackedActionResult,
@@ -1140,6 +1141,7 @@ export default function GitActionsControl({
   );
   const changeRequestTerminology = sourceControlPresentation.terminology;
   const isJjRepository = gitStatus?.driverKind === "jj";
+  const versionControlPresentation = getVcsPresentation(gitStatus?.driverKind);
   const jjPublishRef = isJjRepository
     ? (activeServerThread?.vcsWorkspace?.publishRef ?? null)
     : null;
@@ -1361,8 +1363,8 @@ export default function GitActionsControl({
         progressToastId ??
         toastManager.add({
           type: "loading",
-          title: progressStages[0] ?? "Running git action...",
-          description: "Waiting for Git...",
+          title: progressStages[0] ?? "Running source-control action...",
+          description: `Waiting for ${versionControlPresentation.systemLabel}...`,
           timeout: 0,
           data: scopedToastData,
         });
@@ -1371,19 +1373,19 @@ export default function GitActionsControl({
         toastId: resolvedProgressToastId,
         toastData: scopedToastData,
         actionId,
-        title: progressStages[0] ?? "Running git action...",
+        title: progressStages[0] ?? "Running source-control action...",
         phaseStartedAtMs: null,
         hookStartedAtMs: null,
         hookName: null,
         lastOutputLine: null,
-        currentPhaseLabel: progressStages[0] ?? "Running git action...",
+        currentPhaseLabel: progressStages[0] ?? "Running source-control action...",
       };
 
       if (progressToastId) {
         toastManager.update(progressToastId, {
           type: "loading",
-          title: progressStages[0] ?? "Running git action...",
-          description: "Waiting for Git...",
+          title: progressStages[0] ?? "Running source-control action...",
+          description: `Waiting for ${versionControlPresentation.systemLabel}...`,
           timeout: 0,
           data: scopedToastData,
         });
