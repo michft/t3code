@@ -38,6 +38,7 @@ export interface VcsFinalizeChangeInput {
   readonly message: string;
   readonly filePaths?: ReadonlyArray<string>;
   readonly createPublishRef?: string;
+  readonly publishRef?: VcsNamedRef;
 }
 
 export type VcsFinalizeChangeResult =
@@ -347,6 +348,18 @@ export const make = Effect.gen(function* () {
           detail: `Change message cannot exceed ${MESSAGE_MAX_LENGTH} characters.`,
         });
       }
+      if (input.createPublishRef !== undefined && input.publishRef !== undefined) {
+        return yield* changeError({
+          operation: "update-publish-ref",
+          detail: "Create and update publish bookmark requests are mutually exclusive.",
+        });
+      }
+      if (input.publishRef !== undefined && input.publishRef.kind !== "bookmark") {
+        return yield* changeError({
+          operation: "update-publish-ref",
+          detail: "Jujutsu publishing requires a bookmark.",
+        });
+      }
 
       const driver = yield* resolveJjDriver(input.cwd);
       const selected = yield* snapshotAndSelect({
@@ -378,7 +391,37 @@ export const make = Effect.gen(function* () {
       }
 
       let publishRef: VcsNamedRef | undefined;
-      if (input.createPublishRef !== undefined) {
+      if (input.publishRef !== undefined) {
+        const bookmarkResult = yield* driver.execute({
+          operation: "VcsChangeService.updatePublishRef",
+          cwd: input.cwd,
+          args: [
+            "bookmark",
+            "set",
+            input.publishRef.name,
+            "--revision",
+            quoteJjSymbol(finalized.commitId),
+          ],
+          timeoutMs: 20_000,
+          maxOutputBytes: 256 * 1024,
+        });
+        if (
+          classifyJjCommandFailure({
+            exitCode: bookmarkResult.exitCode,
+            stderr: bookmarkResult.stderr,
+          }) === "invalid-ref"
+        ) {
+          return yield* changeError({
+            operation: "update-publish-ref",
+            detail: "The bookmark cannot be exported as a Git ref.",
+          });
+        }
+        publishRef = {
+          kind: "bookmark",
+          name: input.publishRef.name,
+          target: toRevision(finalized),
+        };
+      } else if (input.createPublishRef !== undefined) {
         const preferredPublishName = input.createPublishRef.trim();
         if (preferredPublishName.length === 0 || preferredPublishName.includes("\0")) {
           return yield* changeError({

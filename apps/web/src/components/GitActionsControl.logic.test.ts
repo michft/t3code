@@ -181,6 +181,83 @@ describe("when: repository uses jj", () => {
       },
     ]);
   });
+
+  it("publishes only through an explicit workspace bookmark", () => {
+    const publishRef = {
+      kind: "bookmark" as const,
+      name: "feature/phase-6",
+      target: { commitId: "finalized-commit", changeId: "finalized-change" },
+    };
+    assert.deepEqual(resolveQuickAction(jjStatus, false, false, true, publishRef), {
+      label: "Finalize & publish",
+      disabled: false,
+      kind: "run_action",
+      action: "commit_push",
+    });
+    const cleanStatus = { ...jjStatus, hasWorkingTreeChanges: false };
+    assert.deepEqual(resolveQuickAction(cleanStatus, false, false, true, publishRef), {
+      label: "Publish feature/phase-6",
+      disabled: false,
+      kind: "run_action",
+      action: "push",
+    });
+    assert.deepEqual(
+      resolveQuickAction(cleanStatus, false, false, true, {
+        ...publishRef,
+        remoteName: "origin",
+      }),
+      {
+        label: "Create change request",
+        disabled: false,
+        kind: "run_action",
+        action: "create_pr",
+      },
+    );
+  });
+
+  it("prefers an explicit safe fetch when the tracked remote is ahead", () => {
+    assert.deepEqual(resolveQuickAction({ ...jjStatus, behindCount: 1 }, false), {
+      label: "Fetch updates",
+      disabled: false,
+      kind: "run_pull",
+    });
+  });
+
+  it("opens an existing change request instead of offering to create another", () => {
+    const openPrStatus = {
+      ...jjStatus,
+      hasWorkingTreeChanges: false,
+      pr: {
+        number: 106,
+        title: "Phase 6 change request",
+        url: "https://example.com/pr/106",
+        baseRef: "main",
+        headRef: "feature/phase-6",
+        state: "open" as const,
+      },
+    };
+    const publishRef = {
+      kind: "bookmark" as const,
+      name: "feature/phase-6",
+      remoteName: "origin",
+      target: { commitId: "finalized-commit", changeId: "finalized-change" },
+    };
+
+    assert.deepEqual(buildMenuItems(openPrStatus, false, true, publishRef), [
+      {
+        id: "pr",
+        label: "View PR",
+        disabled: false,
+        icon: "pr",
+        kind: "open_pr",
+      },
+    ]);
+    assert.deepEqual(resolveQuickAction(openPrStatus, false, false, true, publishRef), {
+      label: "View PR",
+      disabled: false,
+      kind: "open_pr",
+    });
+  });
 });
 
 describe("when: ref is clean, ahead, and has an open PR", () => {

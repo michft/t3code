@@ -74,6 +74,7 @@ export interface RunVcsStackedActionInput {
   readonly commitMessage?: string;
   readonly featureBranch?: boolean;
   readonly filePaths?: ReadonlyArray<string>;
+  readonly publishRef?: GitRunStackedActionInput["publishRef"];
   readonly onProgress?: (event: GitActionProgressEvent) => void;
 }
 
@@ -461,6 +462,7 @@ export function createVcsActionManager<R, E>(
           ...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
           ...(input.featureBranch ? { featureBranch: true } : {}),
           ...(input.filePaths?.length ? { filePaths: [...input.filePaths] } : {}),
+          ...(input.publishRef ? { publishRef: input.publishRef } : {}),
         };
         return consumeVcsActionProgress(
           runStreamInEnvironment(

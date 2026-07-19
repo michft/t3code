@@ -15,8 +15,10 @@ import { expect } from "vite-plus/test";
 import type {
   GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
+  GitRunStackedActionInput,
   ModelSelection,
   ThreadId,
+  VcsNamedRef,
 } from "@t3tools/contracts";
 
 import { GitCommandError, TextGenerationError } from "@t3tools/contracts";
@@ -24,6 +26,7 @@ import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsChangeService from "../vcs/VcsChangeService.ts";
+import * as VcsSyncService from "../vcs/VcsSyncService.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubSourceControlProvider from "../sourceControl/GitHubSourceControlProvider.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
@@ -609,6 +612,7 @@ function runStackedAction(
     commitMessage?: string;
     featureBranch?: boolean;
     filePaths?: readonly string[];
+    publishRef?: GitRunStackedActionInput["publishRef"];
   },
   options?: Parameters<GitManager.GitManager["Service"]["runStackedAction"]>[1],
 ) {
@@ -640,6 +644,7 @@ function makeManager(input?: {
   textGeneration?: Partial<FakeGitTextGeneration>;
   setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
   vcsChangeService?: VcsChangeService.VcsChangeService["Service"];
+  vcsSyncService?: VcsSyncService.VcsSyncService["Service"];
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
@@ -677,6 +682,14 @@ function makeManager(input?: {
         detectKind: () => Effect.succeed("git" as const),
         prepareMessageContext: () => Effect.die("unexpected jj change context"),
         finalizeChange: () => Effect.die("unexpected jj change finalization"),
+      },
+    ),
+    Layer.succeed(
+      VcsSyncService.VcsSyncService,
+      input?.vcsSyncService ?? {
+        fetch: () => Effect.die("unexpected jj fetch"),
+        publish: () => Effect.die("unexpected jj publish"),
+        readRangeContext: () => Effect.die("unexpected jj range context"),
       },
     ),
     Layer.succeed(
@@ -1477,6 +1490,136 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         workspaceRevision: { commitId: "workspace-commit", changeId: "workspace-change" },
       });
       expect(result.toast.title).toBe("Finalized finaliz");
+    }),
+  );
+
+  it.effect("moves and publishes only the explicit jj bookmark", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-jj-publish-");
+      const existingPublishRef = {
+        kind: "bookmark" as const,
+        name: "feature/phase-6",
+        target: { commitId: "previous-commit", changeId: "previous-change" },
+      };
+      let finalizeInput: VcsChangeService.VcsFinalizeChangeInput | null = null;
+      let publishedRef: VcsNamedRef | null = null;
+      const { manager } = yield* makeManager({
+        vcsChangeService: {
+          detectKind: () => Effect.succeed("jj"),
+          prepareMessageContext: () =>
+            Effect.succeed({
+              summary: "modified\tchange.txt",
+              patch: "diff --git a/change.txt b/change.txt\n",
+              workspaceRevision: { commitId: "before", changeId: "before-change" },
+            }),
+          finalizeChange: (input) => {
+            finalizeInput = input;
+            return Effect.succeed({
+              status: "created" as const,
+              finalizedRevision: { commitId: "published-commit", changeId: "published-change" },
+              workspaceRevision: { commitId: "workspace-commit", changeId: "workspace-change" },
+              publishRef: {
+                kind: "bookmark" as const,
+                name: existingPublishRef.name,
+                target: { commitId: "published-commit", changeId: "published-change" },
+              },
+            });
+          },
+        },
+        vcsSyncService: {
+          fetch: () => Effect.die("unexpected jj fetch"),
+          publish: (input) => {
+            publishedRef = input.publishRef;
+            return Effect.succeed({
+              status: "pushed" as const,
+              remoteName: "origin",
+              publishRef: { ...input.publishRef, remoteName: "origin" },
+            });
+          },
+          readRangeContext: () => Effect.die("unexpected jj range context"),
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "commit_push",
+        commitMessage: "Publish Phase 6",
+        publishRef: existingPublishRef,
+      });
+
+      expect(finalizeInput).toMatchObject({ publishRef: existingPublishRef });
+      expect(publishedRef).toMatchObject({
+        name: existingPublishRef.name,
+        target: { commitId: "published-commit" },
+      });
+      expect(result.push).toEqual({
+        status: "pushed",
+        branch: existingPublishRef.name,
+        upstreamBranch: `origin/${existingPublishRef.name}`,
+        setUpstream: true,
+      });
+      expect(result.commit.publishRef?.remoteName).toBe("origin");
+    }),
+  );
+
+  it.effect("uses the published jj bookmark as the change-request head", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-jj-pr-");
+      yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "--set-upstream", "origin", "main"]);
+      const baseRevision = (yield* runGit(repoDir, [
+        "rev-parse",
+        "refs/remotes/origin/main",
+      ])).stdout.trim();
+      const publishRef = {
+        kind: "bookmark" as const,
+        name: "feature/phase-6-pr",
+        remoteName: "origin",
+        target: { commitId: "published-commit", changeId: "published-change" },
+      };
+      const createdPr =
+        '[{"number":106,"title":"Phase 6 change request","url":"https://github.com/michft/t3code/pull/106","baseRefName":"main","headRefName":"feature/phase-6-pr","state":"OPEN"}]';
+      let observedBaseRevision: string | null = null;
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: { prListSequence: ["[]", createdPr], defaultBranch: "main" },
+        vcsChangeService: {
+          detectKind: () => Effect.succeed("jj"),
+          prepareMessageContext: () => Effect.die("unexpected jj change context"),
+          finalizeChange: () => Effect.die("unexpected jj finalization"),
+        },
+        vcsSyncService: {
+          fetch: () => Effect.die("unexpected jj fetch"),
+          publish: () =>
+            Effect.succeed({ status: "pushed" as const, remoteName: "origin", publishRef }),
+          readRangeContext: (input) => {
+            observedBaseRevision = input.baseRevision;
+            return Effect.succeed({
+              commitSummary: "published Phase 6",
+              diffSummary: "1 change",
+              diffPatch: "diff --git a/change.txt b/change.txt\n",
+            });
+          },
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+        publishRef,
+      });
+
+      expect(result.pr).toMatchObject({
+        status: "created",
+        number: 106,
+        headBranch: publishRef.name,
+      });
+      expect(observedBaseRevision).toBe(baseRevision);
+      expect(ghCalls.some((call) => call.includes(`--head ${publishRef.name}`))).toBe(true);
+      expect(
+        ghCalls.some((call) => call.includes("pr create") && call.includes(publishRef.name)),
+      ).toBe(true);
     }),
   );
 

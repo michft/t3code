@@ -81,6 +81,7 @@ it.layer(TestLayer)("VcsChangeService", (it) => {
         name: "feature/selected-change",
         target: selected.finalizedRevision,
       });
+      assert.isDefined(selected.publishRef);
 
       const finalizedPatch = yield* driver.execute({
         operation: "VcsChangeService.test.finalizedPatch",
@@ -101,8 +102,12 @@ it.layer(TestLayer)("VcsChangeService", (it) => {
       const remaining = yield* changes.finalizeChange({
         cwd: repository,
         message: "Finalize remaining file",
+        publishRef: selected.publishRef,
       });
       assert.equal(remaining.status, "created");
+      if (remaining.status === "created") {
+        assert.equal(remaining.publishRef?.target?.commitId, remaining.finalizedRevision.commitId);
+      }
 
       const empty = yield* changes.finalizeChange({ cwd: repository, message: "Nothing left" });
       assert.deepStrictEqual(empty, { status: "skipped_no_changes" });

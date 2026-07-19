@@ -604,6 +604,7 @@ function ThreadRouteContent(
     onOpenGitInspector: fileInspector.supported ? handleOpenGitInspector : undefined,
     currentBranch: selectedThread?.branch ?? null,
     gitStatus: gitStatus.data,
+    publishRef: selectedThread?.vcsWorkspace?.publishRef ?? null,
     gitOperationLabel: gitState.gitOperationLabel,
     canOpenTerminal: Boolean(selectedThreadProject?.workspaceRoot),
     canOpenFiles: Boolean(selectedThreadProject?.workspaceRoot),

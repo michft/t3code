@@ -1,6 +1,7 @@
 import type {
   GitRunStackedActionResult,
   GitStackedAction,
+  VcsNamedRef,
   VcsStatusResult,
 } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
@@ -12,7 +13,7 @@ import {
 
 export type GitActionIconName = "commit" | "push" | "pr";
 
-export type GitDialogAction = "commit" | "push" | "create_pr";
+export type GitDialogAction = "commit" | "commit_push" | "push" | "create_pr";
 
 export interface GitActionMenuItem {
   id: "commit" | "push" | "pr";
@@ -101,22 +102,55 @@ export function buildMenuItems(
   gitStatus: VcsStatusResult | null,
   isBusy: boolean,
   hasPrimaryRemote = true,
+  publishRef: VcsNamedRef | null = null,
 ): GitActionMenuItem[] {
   if (!gitStatus) return [];
+  const terminology = resolveChangeRequestTerminology(gitStatus);
   if (gitStatus.driverKind === "jj") {
+    const hasChanges = gitStatus.hasWorkingTreeChanges;
+    if (!hasChanges && gitStatus.pr?.state === "open") {
+      return [
+        {
+          id: "pr",
+          label: `View ${terminology.shortLabel}`,
+          disabled: isBusy,
+          icon: "pr",
+          kind: "open_pr",
+        },
+      ];
+    }
+    if (!hasChanges && publishRef) {
+      return [
+        publishRef.remoteName
+          ? {
+              id: "pr",
+              label: "Create change request",
+              disabled: isBusy,
+              icon: "pr",
+              kind: "open_dialog",
+              dialogAction: "create_pr",
+            }
+          : {
+              id: "push",
+              label: `Publish ${publishRef.name}`,
+              disabled: isBusy,
+              icon: "push",
+              kind: "open_dialog",
+              dialogAction: "push",
+            },
+      ];
+    }
     return [
       {
         id: "commit",
-        label: "Finalize change",
-        disabled: isBusy || !gitStatus.hasWorkingTreeChanges,
+        label: publishRef ? "Finalize & publish" : "Finalize change",
+        disabled: isBusy || !hasChanges,
         icon: "commit",
         kind: "open_dialog",
-        dialogAction: "commit",
+        dialogAction: publishRef ? "commit_push" : "commit",
       },
     ];
   }
-  const terminology = resolveChangeRequestTerminology(gitStatus);
-
   const hasBranch = gitStatus.refName !== null;
   const hasChanges = gitStatus.hasWorkingTreeChanges;
   const hasOpenPr = gitStatus.pr?.state === "open";
@@ -187,7 +221,69 @@ export function resolveQuickAction(
   isBusy: boolean,
   isDefaultRef = false,
   hasPrimaryRemote = true,
+  publishRef: VcsNamedRef | null = null,
 ): GitQuickAction {
+  if (gitStatus?.driverKind === "jj") {
+    if (isBusy) {
+      return {
+        label: "Source control action",
+        disabled: true,
+        kind: "show_hint",
+        hint: "Source control action in progress.",
+      };
+    }
+    if (gitStatus.behindCount > 0) {
+      return {
+        label: "Fetch updates",
+        disabled: false,
+        kind: "run_pull",
+      };
+    }
+    if (gitStatus.hasWorkingTreeChanges) {
+      return publishRef
+        ? {
+            label: "Finalize & publish",
+            disabled: false,
+            kind: "run_action",
+            action: "commit_push",
+          }
+        : {
+            label: "Finalize change",
+            disabled: false,
+            kind: "run_action",
+            action: "commit",
+          };
+    }
+    if (gitStatus.pr?.state === "open") {
+      const terminology = resolveChangeRequestTerminology(gitStatus);
+      return {
+        label: `View ${terminology.shortLabel}`,
+        disabled: false,
+        kind: "open_pr",
+      };
+    }
+    if (publishRef) {
+      return publishRef.remoteName
+        ? {
+            label: "Create change request",
+            disabled: false,
+            kind: "run_action",
+            action: "create_pr",
+          }
+        : {
+            label: `Publish ${publishRef.name}`,
+            disabled: false,
+            kind: "run_action",
+            action: "push",
+          };
+    }
+    return {
+      label: "Finalize change",
+      disabled: true,
+      kind: "show_hint",
+      hint: "The working-copy change is empty.",
+    };
+  }
   if (isBusy) {
     return { label: "Commit", disabled: true, kind: "show_hint", hint: "Git action in progress." };
   }
@@ -198,31 +294,6 @@ export function resolveQuickAction(
       disabled: true,
       kind: "show_hint",
       hint: "Git status is unavailable.",
-    };
-  }
-
-  if (gitStatus.driverKind === "jj") {
-    if (isBusy) {
-      return {
-        label: "Finalize change",
-        disabled: true,
-        kind: "show_hint",
-        hint: "Source control action in progress.",
-      };
-    }
-    if (!gitStatus.hasWorkingTreeChanges) {
-      return {
-        label: "Finalize change",
-        disabled: true,
-        kind: "show_hint",
-        hint: "The working-copy change is empty.",
-      };
-    }
-    return {
-      label: "Finalize change",
-      disabled: false,
-      kind: "run_action",
-      action: "commit",
     };
   }
 

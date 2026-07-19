@@ -1,6 +1,6 @@
 # jj Equivalent Workflows Plan
 
-Status: Phases 0-5 implemented locally; Phase 6 next
+Status: Phases 0-6 implemented locally; Phase 7 next
 
 Scope: server, shared contracts, web, mobile, provider integrations, tests, and documentation
 
@@ -259,6 +259,11 @@ Exit criteria:
 - no finalized revision is pushed until an explicit publish action.
 
 ### Phase 6: fetch, publish, and change requests
+
+Implementation status: implemented locally. JJ fetch now returns structured safe-advance,
+needs-rebase, and needs-resolution outcomes. Publish actions require one explicit bookmark, move it
+to the selected finalized revision, push only that bookmark without force, and use it as the change
+request head. Hosted repository creation adds a JJ remote before the same exact-bookmark publish.
 
 Make remote mutation explicit and conservative.
 

@@ -14,6 +14,7 @@ import type {
   GitResolvePullRequestResult,
   GitStackedAction,
   SourceControlCloneProtocol,
+  SourceControlPublishRepositoryInput,
   SourceControlRepositoryVisibility,
   ThreadId,
   VcsDriverKind,
@@ -278,6 +279,7 @@ export function useSourceControlPublishRepositoryAction(scope: SourceControlActi
       visibility: SourceControlRepositoryVisibility;
       remoteName: string;
       protocol: SourceControlCloneProtocol;
+      publishRef?: SourceControlPublishRepositoryInput["publishRef"];
     }) => {
       const target = resolveScope(scope);
       if (target === null) {

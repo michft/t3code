@@ -310,18 +310,55 @@ export function useSelectedThreadGitActions() {
         if (AsyncResult.isFailure(result)) {
           return result;
         }
-        await refreshSelectedThreadGitStatus({ quiet: true, cwd });
+        if (result.value.workspaceRevision && thread.vcsWorkspace) {
+          const syncResult = await syncSelectedThreadBranchState({
+            thread,
+            cwd,
+            nextThreadState: {
+              vcsWorkspace: {
+                ...thread.vcsWorkspace,
+                workspaceRevision: result.value.workspaceRevision,
+              },
+            },
+          });
+          if (AsyncResult.isFailure(syncResult)) {
+            return AsyncResult.failure(syncResult.cause);
+          }
+        } else {
+          await refreshSelectedThreadGitStatus({ quiet: true, cwd });
+        }
+        const needsRebase = result.value.status === "fetched_needs_rebase";
+        const needsResolution = result.value.status === "fetched_needs_resolution";
+        const conflictDescription =
+          needsResolution && result.value.conflicts?.length
+            ? result.value.conflicts
+                .map((conflict) =>
+                  conflict.kind === "content"
+                    ? `File conflict: ${conflict.path}`
+                    : `Bookmark conflict: ${conflict.ref.name}`,
+                )
+                .join("\n")
+            : undefined;
         showGitActionResult({
           type: "success",
-          title:
-            result.value.status === "skipped_up_to_date"
-              ? "Already up to date"
-              : `Pulled latest on ${result.value.refName}`,
+          title: needsResolution
+            ? "Fetched; resolution needed"
+            : needsRebase
+              ? "Fetched; rebase needed"
+              : result.value.status === "skipped_up_to_date"
+                ? "Already up to date"
+                : `Updated ${result.value.refName}`,
+          description: conflictDescription,
         });
         return result;
       },
     );
-  }, [pull, refreshSelectedThreadGitStatus, runSelectedThreadGitMutation]);
+  }, [
+    pull,
+    refreshSelectedThreadGitStatus,
+    runSelectedThreadGitMutation,
+    syncSelectedThreadBranchState,
+  ]);
 
   const onRunSelectedThreadGitAction = useCallback(
     async (input: GitActionRequestInput): Promise<GitRunStackedActionResult | null> => {
@@ -336,6 +373,9 @@ export function useSelectedThreadGitActions() {
             ...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
             ...(input.featureBranch ? { featureBranch: input.featureBranch } : {}),
             ...(input.filePaths?.length ? { filePaths: [...input.filePaths] } : {}),
+            ...(!input.featureBranch && thread.vcsWorkspace?.publishRef
+              ? { publishRef: thread.vcsWorkspace.publishRef }
+              : {}),
           });
           if (AsyncResult.isFailure(result)) {
             return result;
@@ -349,14 +389,18 @@ export function useSelectedThreadGitActions() {
               result.value.toast.cta.kind === "open_pr" ? result.value.toast.cta.url : undefined,
           });
 
-          if (result.value.commit.workspaceRevision && thread.vcsWorkspace) {
+          if (
+            (result.value.commit.workspaceRevision || result.value.commit.publishRef) &&
+            thread.vcsWorkspace
+          ) {
             const syncResult = await syncSelectedThreadBranchState({
               thread,
               cwd,
               nextThreadState: {
                 vcsWorkspace: {
                   ...thread.vcsWorkspace,
-                  workspaceRevision: result.value.commit.workspaceRevision,
+                  workspaceRevision:
+                    result.value.commit.workspaceRevision ?? thread.vcsWorkspace.workspaceRevision,
                   ...(result.value.commit.publishRef
                     ? { publishRef: result.value.commit.publishRef }
                     : {}),

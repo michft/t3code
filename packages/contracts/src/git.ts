@@ -1,7 +1,13 @@
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { SourceControlProviderError, SourceControlProviderInfo } from "./sourceControl.ts";
-import { VcsDriverKind, VcsNamedRef, VcsRevision, VcsWorkspaceIdentity } from "./vcs.ts";
+import {
+  VcsConflict,
+  VcsDriverKind,
+  VcsNamedRef,
+  VcsRevision,
+  VcsWorkspaceIdentity,
+} from "./vcs.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
@@ -124,6 +130,7 @@ export const GitRunStackedActionInput = Schema.Struct({
   filePaths: Schema.optional(
     Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
   ),
+  publishRef: Schema.optional(VcsNamedRef),
 });
 export type GitRunStackedActionInput = typeof GitRunStackedActionInput.Type;
 
@@ -361,9 +368,16 @@ export const GitRunStackedActionResult = Schema.Struct({
 export type GitRunStackedActionResult = typeof GitRunStackedActionResult.Type;
 
 export const VcsPullResult = Schema.Struct({
-  status: Schema.Literals(["pulled", "skipped_up_to_date"]),
+  status: Schema.Literals([
+    "pulled",
+    "skipped_up_to_date",
+    "fetched_needs_rebase",
+    "fetched_needs_resolution",
+  ]),
   refName: TrimmedNonEmptyStringSchema,
   upstreamRef: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+  workspaceRevision: Schema.optional(VcsRevision),
+  conflicts: Schema.optional(Schema.Array(VcsConflict)),
 });
 export type VcsPullResult = typeof VcsPullResult.Type;
 

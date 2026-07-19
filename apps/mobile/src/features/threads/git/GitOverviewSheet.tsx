@@ -77,8 +77,16 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
   const isDefaultRef = gitStatus.data?.isDefaultRef ?? false;
 
   const menuItems = useMemo(
-    () => (isRepo ? buildMenuItems(gitStatus.data, busy, hasPrimaryRemote) : []),
-    [busy, gitStatus.data, hasPrimaryRemote, isRepo],
+    () =>
+      isRepo
+        ? buildMenuItems(
+            gitStatus.data,
+            busy,
+            hasPrimaryRemote,
+            selectedThread?.vcsWorkspace?.publishRef ?? null,
+          )
+        : [],
+    [busy, gitStatus.data, hasPrimaryRemote, isRepo, selectedThread?.vcsWorkspace?.publishRef],
   );
 
   const sheetMenuItems = useMemo(
@@ -153,7 +161,7 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
         await openExistingPr();
         return;
       }
-      if (item.dialogAction === "commit") {
+      if (item.dialogAction === "commit" || item.dialogAction === "commit_push") {
         navigation.navigate("GitCommit", {
           environmentId: String(environmentId),
           threadId: String(threadId),
@@ -179,7 +187,10 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
       if (status == null) {
         return undefined;
       }
-      if (item.dialogAction === "commit" && status.hasWorkingTreeChanges) {
+      if (
+        (item.dialogAction === "commit" || item.dialogAction === "commit_push") &&
+        status.hasWorkingTreeChanges
+      ) {
         const fileCount = status.workingTree?.files.length ?? 0;
         return `${fileCount} file${fileCount === 1 ? "" : "s"} changed`;
       }

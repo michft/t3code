@@ -13,6 +13,7 @@ import type {
   SourceControlProviderKind,
   SourceControlPublishRepositoryResult,
   SourceControlRepositoryVisibility,
+  VcsNamedRef,
   VcsStatusResult,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -374,6 +375,8 @@ interface PublishRepositoryDialogProps {
   readonly onOpenChange: (open: boolean) => void;
   readonly environmentId: ScopedThreadRef["environmentId"] | null;
   readonly gitCwd: string;
+  readonly publishRef: VcsNamedRef | null;
+  readonly onPublishRef: (publishRef: VcsNamedRef) => void;
 }
 
 function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
@@ -496,6 +499,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
         visibility: publishVisibility,
         remoteName: publishRemoteName.trim() || "origin",
         protocol: publishProtocol,
+        ...(props.publishRef ? { publishRef: props.publishRef } : {}),
       });
 
       if (result._tag === "Failure") {
@@ -510,11 +514,16 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
         setPublishResult(result.value);
         setPublishWizardStep(2);
       });
+      if (result.value.publishRef) {
+        props.onPublishRef(result.value.publishRef);
+      }
     })();
   }, [
     canSubmitPublishRepository,
     props.environmentId,
     props.gitCwd,
+    props.publishRef,
+    props.onPublishRef,
     publishProtocol,
     publishProvider,
     publishRemoteName,
@@ -1083,14 +1092,20 @@ export default function GitActionsControl({
 
   const syncThreadAfterSourceControlAction = useCallback(
     (result: GitRunStackedActionResult) => {
-      if (result.commit.workspaceRevision && activeServerThread?.vcsWorkspace && activeThreadRef) {
+      if (
+        (result.commit.workspaceRevision || result.commit.publishRef) &&
+        activeServerThread?.vcsWorkspace &&
+        activeThreadRef
+      ) {
         void updateThreadMetadata({
           environmentId: activeThreadRef.environmentId,
           input: {
             threadId: activeThreadRef.threadId,
             vcsWorkspace: {
               ...activeServerThread.vcsWorkspace,
-              workspaceRevision: result.commit.workspaceRevision,
+              workspaceRevision:
+                result.commit.workspaceRevision ??
+                activeServerThread.vcsWorkspace.workspaceRevision,
               ...(result.commit.publishRef ? { publishRef: result.commit.publishRef } : {}),
             },
           },
@@ -1125,6 +1140,9 @@ export default function GitActionsControl({
   );
   const changeRequestTerminology = sourceControlPresentation.terminology;
   const isJjRepository = gitStatus?.driverKind === "jj";
+  const jjPublishRef = isJjRepository
+    ? (activeServerThread?.vcsWorkspace?.publishRef ?? null)
+    : null;
   const SourceControlIcon = isJjRepository ? JujutsuIcon : sourceControlPresentation.Icon;
   // Default to true while loading so we don't flash init controls.
   const isRepo = gitStatus?.isRepo ?? true;
@@ -1178,13 +1196,19 @@ export default function GitActionsControl({
   }, [gitStatusForActions?.isDefaultRef]);
 
   const gitActionMenuItems = useMemo(
-    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasPrimaryRemote),
-    [gitStatusForActions, hasPrimaryRemote, isGitActionRunning],
+    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasPrimaryRemote, jjPublishRef),
+    [gitStatusForActions, hasPrimaryRemote, isGitActionRunning, jjPublishRef],
   );
   const quickAction = useMemo(
     () =>
-      resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultRef, hasPrimaryRemote),
-    [gitStatusForActions, hasPrimaryRemote, isDefaultRef, isGitActionRunning],
+      resolveQuickAction(
+        gitStatusForActions,
+        isGitActionRunning,
+        isDefaultRef,
+        hasPrimaryRemote,
+        jjPublishRef,
+      ),
+    [gitStatusForActions, hasPrimaryRemote, isDefaultRef, isGitActionRunning, jjPublishRef],
   );
   const quickActionDisabledReason = quickAction.disabled
     ? (quickAction.hint ?? "This action is currently unavailable.")
@@ -1427,6 +1451,7 @@ export default function GitActionsControl({
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
         ...(filePaths ? { filePaths } : {}),
+        ...(!featureBranch && jjPublishRef ? { publishRef: jjPublishRef } : {}),
         onProgress: applyProgressEvent,
       });
 
@@ -1594,13 +1619,38 @@ export default function GitActionsControl({
         }
 
         const pullResult = result.value;
+        if (pullResult.workspaceRevision && activeServerThread?.vcsWorkspace && activeThreadRef) {
+          void updateThreadMetadata({
+            environmentId: activeThreadRef.environmentId,
+            input: {
+              threadId: activeThreadRef.threadId,
+              vcsWorkspace: {
+                ...activeServerThread.vcsWorkspace,
+                workspaceRevision: pullResult.workspaceRevision,
+              },
+            },
+          });
+        }
+        const needsRebase = pullResult.status === "fetched_needs_rebase";
+        const needsResolution = pullResult.status === "fetched_needs_resolution";
         toastManager.update(toastId, {
-          type: "success",
-          title: pullResult.status === "pulled" ? "Pulled" : "Already up to date",
-          description:
-            pullResult.status === "pulled"
-              ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
-              : `${pullResult.refName} is already synchronized.`,
+          type: needsRebase || needsResolution ? "info" : "success",
+          title: needsResolution
+            ? "Fetched; resolution needed"
+            : needsRebase
+              ? "Fetched; rebase needed"
+              : pullResult.status === "pulled"
+                ? isJjRepository
+                  ? "Fetched updates"
+                  : "Pulled"
+                : "Already up to date",
+          description: needsResolution
+            ? "Workspace or bookmark conflicts were left unchanged."
+            : needsRebase
+              ? "Local workspace changes were left unchanged."
+              : pullResult.status === "pulled"
+                ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
+                : `${pullResult.refName} is already synchronized.`,
           data: threadToastData,
         });
       })();
@@ -1647,7 +1697,7 @@ export default function GitActionsControl({
     setExcludedFiles(new Set());
     setIsEditingFiles(false);
     void runGitActionWithToast({
-      action: "commit",
+      action: isJjRepository && jjPublishRef ? "commit_push" : "commit",
       ...(commitMessage ? { commitMessage } : {}),
       ...(!allSelected ? { filePaths: selectedFiles.map((f) => f.path) } : {}),
     });
@@ -1683,8 +1733,7 @@ export default function GitActionsControl({
     [gitCwd, openInPreferredEditor, threadToastData],
   );
 
-  const canPublishRepository =
-    isRepo && !isJjRepository && gitStatusForActions !== null && !hasPrimaryRemote;
+  const canPublishRepository = isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
 
   if (!gitCwd) return null;
 
@@ -2079,7 +2128,11 @@ export default function GitActionsControl({
               {isJjRepository ? "Finalize with new bookmark" : "Commit on new refName"}
             </Button>
             <Button size="sm" disabled={noneSelected} onClick={runDialogAction}>
-              {isJjRepository ? "Finalize change" : "Commit"}
+              {isJjRepository
+                ? jjPublishRef
+                  ? "Finalize & publish"
+                  : "Finalize change"
+                : "Commit"}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -2090,6 +2143,17 @@ export default function GitActionsControl({
         onOpenChange={setIsPublishDialogOpen}
         environmentId={activeEnvironmentId}
         gitCwd={gitCwd}
+        publishRef={jjPublishRef}
+        onPublishRef={(publishRef) => {
+          if (!activeServerThread?.vcsWorkspace || !activeThreadRef) return;
+          void updateThreadMetadata({
+            environmentId: activeThreadRef.environmentId,
+            input: {
+              threadId: activeThreadRef.threadId,
+              vcsWorkspace: { ...activeServerThread.vcsWorkspace, publishRef },
+            },
+          });
+        }}
       />
 
       <Dialog

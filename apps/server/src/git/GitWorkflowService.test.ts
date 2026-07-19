@@ -48,6 +48,7 @@ function mockJjDriver(
 
 function makeLayer(input: {
   readonly detect: VcsDriverRegistry.VcsDriverRegistry["Service"]["detect"];
+  readonly manager?: Partial<GitManager.GitManager["Service"]>;
 }) {
   return GitWorkflowService.layer.pipe(
     Layer.provide(
@@ -56,11 +57,60 @@ function makeLayer(input: {
       }),
     ),
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
-    Layer.provide(Layer.mock(GitManager.GitManager)({})),
+    Layer.provide(Layer.mock(GitManager.GitManager)(input.manager ?? {})),
   );
 }
 
 describe("GitWorkflowService", () => {
+  it.effect("lets GitManager route jj stacked actions", () => {
+    const driver = mockJjDriver({});
+    let receivedAction: string | null = null;
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const result = yield* workflow.runStackedAction({
+        actionId: "jj-action",
+        cwd: "/jj-repo",
+        action: "push",
+        publishRef: { kind: "bookmark", name: "feature/phase-6" },
+      });
+      assert.equal(receivedAction, "push");
+      assert.equal(result.push.status, "pushed");
+    }).pipe(
+      Effect.provide(
+        makeLayer({
+          detect: () =>
+            Effect.succeed({
+              kind: "jj" as const,
+              repository: {
+                kind: "jj" as const,
+                rootPath: "/jj-repo",
+                metadataPath: "/jj-repo/.jj",
+                freshness: {
+                  source: "live-local" as const,
+                  observedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
+                  expiresAt: Option.none(),
+                },
+              },
+              driver,
+            }),
+          manager: {
+            runStackedAction: (input) => {
+              receivedAction = input.action;
+              return Effect.succeed({
+                action: input.action,
+                branch: { status: "skipped_not_requested" as const },
+                commit: { status: "skipped_not_requested" as const },
+                push: { status: "pushed" as const, branch: "feature/phase-6" },
+                pr: { status: "skipped_not_requested" as const },
+                toast: { title: "Published feature/phase-6", cta: { kind: "none" as const } },
+              });
+            },
+          },
+        }),
+      ),
+    );
+  });
+
   it.effect("routes status and ref reads through a detected jj driver", () => {
     const driver = mockJjDriver({
       getLocalStatus: () =>

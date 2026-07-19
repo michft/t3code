@@ -1,6 +1,6 @@
 # jj command contract
 
-Status: Phases 0-5 implemented; remote publishing begins in Phase 6.
+Status: Phases 0-6 implemented; pull-request checkout begins in Phase 7.
 
 ## Compatibility
 
@@ -95,7 +95,21 @@ Commands below omit the standard `--color=never --no-pager` prefix and repositor
 | List remotes               | `jj git remote list`                                       | Decode documented line format until jj provides template output     |
 | Add remote                 | `jj git remote add <name> <url>`                           | Exit status; redact URL credentials                                 |
 | Fetch                      | `jj git fetch --remote <remote>`                           | Exit status; then reread bookmarks                                  |
-| Push one bookmark          | `jj git push --remote <remote> --bookmark <name>`          | Exit status; never push all bookmarks                               |
+| Push one bookmark          | `jj git push --remote <remote> --bookmark exact:<name>`    | Exit status; never push all bookmarks                               |
+
+## Remote synchronization safety
+
+Fetch snapshots the workspace, records its current revision and remote bookmarks, runs
+`jj git fetch --remote <remote>`, then rereads structured state. It advances `@` only when the
+working-copy change is empty and its old parent is safely superseded by the fetched default remote
+bookmark. Dirty, divergent, or conflicted workspaces remain unchanged and return structured
+needs-rebase or needs-resolution results.
+
+Publish requires an explicit bookmark and target revision. T3 Code moves that bookmark to the
+target, then pushes only `exact:<bookmark>` to one named remote. It never pushes all bookmarks,
+never force-pushes automatically, and reports authentication or remote-safety rejection through
+the typed VCS error contract. Provider commands derive repository identity from the normalized
+remote, allowing change-request operations to use the published bookmark as their head.
 
 ## Thread workspace lifecycle
 
