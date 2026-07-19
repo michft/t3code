@@ -332,8 +332,8 @@ function GitFetchIntervalSettings() {
             </span>
           </div>
           <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
-            Refresh remote branch status in the background. Set this to 0 seconds if Git credentials
-            or security keys should only be prompted by explicit Git actions.
+            Refresh remote version-control status in the background. Set this to 0 seconds if
+            credentials or security keys should only be prompted by explicit source-control actions.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -351,7 +351,7 @@ function GitFetchIntervalSettings() {
           >
             <NumberFieldGroup>
               <NumberFieldDecrement aria-label="Decrease fetch interval" />
-              <NumberFieldInput aria-label="Automatic Git fetch interval in seconds" />
+              <NumberFieldInput aria-label="Automatic remote fetch interval in seconds" />
               <NumberFieldIncrement aria-label="Increase fetch interval" />
             </NumberFieldGroup>
           </NumberField>
@@ -423,7 +423,7 @@ function EmptySourceControlDiscovery({
           <EmptyDescription>
             {hasError
               ? error
-              : "Install Git on the server, add optional hosting integrations or credentials your workspace needs, then rescan."}
+              : "Install a supported version control system on the server, add optional hosting integrations or credentials your workspace needs, then rescan."}
           </EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
@@ -476,7 +476,7 @@ export function SourceControlSettingsPanel() {
           </Button>
         }
       />
-      <TooltipPopup side="top">Rescan Git and hosting integrations</TooltipPopup>
+      <TooltipPopup side="top">Rescan version control and hosting integrations</TooltipPopup>
     </Tooltip>
   );
 
