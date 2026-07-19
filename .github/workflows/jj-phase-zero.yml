@@ -1,0 +1,68 @@
+name: jj Phase 0 Contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/jj-phase-zero.yml"
+      - "apps/server/src/sourceControl/SourceControlDiscovery.ts"
+      - "apps/server/src/vcs/VcsProcess.ts"
+      - "packages/contracts/src/sourceControl.ts"
+      - "packages/contracts/src/vcs.ts"
+      - "packages/shared/src/jjCli.ts"
+      - "scripts/jj-phase-zero-smoke.ts"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/jj-phase-zero.yml"
+      - "apps/server/src/sourceControl/SourceControlDiscovery.ts"
+      - "apps/server/src/vcs/VcsProcess.ts"
+      - "packages/contracts/src/sourceControl.ts"
+      - "packages/contracts/src/vcs.ts"
+      - "packages/shared/src/jjCli.ts"
+      - "scripts/jj-phase-zero-smoke.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: ${{ matrix.os }} / ${{ matrix.jj_tool }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-14
+          - windows-2022
+        jj_tool:
+          - jj-cli@0.42.0
+          - jj-cli
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: package.json
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install smoke-test dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @t3tools/scripts...
+
+      - name: Install Jujutsu
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        with:
+          tool: ${{ matrix.jj_tool }}
+
+      - name: Verify jj command contract
+        run: node scripts/jj-phase-zero-smoke.ts

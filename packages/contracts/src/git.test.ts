@@ -7,6 +7,7 @@ import {
   GitRunStackedActionResult,
   GitRunStackedActionInput,
   GitResolvePullRequestResult,
+  VcsStatusLocalResult,
 } from "./git.ts";
 
 const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
@@ -16,6 +17,7 @@ const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
 const decodeRunStackedActionInput = Schema.decodeUnknownSync(GitRunStackedActionInput);
 const decodeRunStackedActionResult = Schema.decodeUnknownSync(GitRunStackedActionResult);
 const decodeResolvePullRequestResult = Schema.decodeUnknownSync(GitResolvePullRequestResult);
+const decodeStatusLocalResult = Schema.decodeUnknownSync(VcsStatusLocalResult);
 
 describe("VcsCreateWorktreeInput", () => {
   it("accepts omitted newRefName for existing-refName worktrees", () => {
@@ -124,5 +126,37 @@ describe("GitRunStackedActionResult", () => {
     if (parsed.toast.cta.kind === "run_action") {
       expect(parsed.toast.cta.action.kind).toBe("create_pr");
     }
+  });
+});
+
+describe("VcsStatusLocalResult", () => {
+  const baseStatus = {
+    isRepo: true,
+    hasPrimaryRemote: true,
+    isDefaultRef: true,
+    refName: "main",
+    hasWorkingTreeChanges: false,
+    workingTree: { files: [], insertions: 0, deletions: 0 },
+  };
+
+  it("requires variant-specific conflict details", () => {
+    expect(
+      decodeStatusLocalResult({
+        ...baseStatus,
+        conflicts: [
+          { kind: "content", path: "conflicted.txt" },
+          { kind: "named-ref", refName: "feature" },
+        ],
+      }).conflicts,
+    ).toEqual([
+      { kind: "content", path: "conflicted.txt" },
+      { kind: "named-ref", refName: "feature" },
+    ]);
+    expect(() =>
+      decodeStatusLocalResult({ ...baseStatus, conflicts: [{ kind: "content" }] }),
+    ).toThrow();
+    expect(() =>
+      decodeStatusLocalResult({ ...baseStatus, conflicts: [{ kind: "named-ref" }] }),
+    ).toThrow();
   });
 });

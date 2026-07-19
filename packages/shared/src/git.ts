@@ -220,8 +220,9 @@ export function mergeGitStatusParts(
   };
 }
 
-function toRemoteStatusPart(status: VcsStatusResult): VcsStatusRemoteResult {
+export function toRemoteStatusPart(status: VcsStatusResult): VcsStatusRemoteResult {
   return {
+    ...(status.trackedRemote === undefined ? {} : { trackedRemote: status.trackedRemote }),
     hasUpstream: status.hasUpstream,
     aheadCount: status.aheadCount,
     behindCount: status.behindCount,
@@ -232,9 +233,19 @@ function toRemoteStatusPart(status: VcsStatusResult): VcsStatusRemoteResult {
   };
 }
 
-function toLocalStatusPart(status: VcsStatusResult): VcsStatusLocalResult {
+export function toLocalStatusPart(status: VcsStatusResult): VcsStatusLocalResult {
   return {
     isRepo: status.isRepo,
+    ...(status.driverKind === undefined ? {} : { driverKind: status.driverKind }),
+    ...(status.workspaceRevision === undefined
+      ? {}
+      : { workspaceRevision: status.workspaceRevision }),
+    ...(status.workspaceRevisionDetails === undefined
+      ? {}
+      : { workspaceRevisionDetails: status.workspaceRevisionDetails }),
+    ...(status.publishRef === undefined ? {} : { publishRef: status.publishRef }),
+    ...(status.defaultRef === undefined ? {} : { defaultRef: status.defaultRef }),
+    ...(status.conflicts === undefined ? {} : { conflicts: status.conflicts }),
     ...(status.sourceControlProvider
       ? { sourceControlProvider: status.sourceControlProvider }
       : {}),

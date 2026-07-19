@@ -1,8 +1,10 @@
 import {
   type SourceControlDiscoveryResult,
+  type SourceControlDiscoveryStatus,
   type VcsDiscoveryItem,
   type VcsDriverKind,
 } from "@t3tools/contracts";
+import { inspectJjVersion } from "@t3tools/shared/jjCli";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -32,7 +34,7 @@ interface DiscoveryProbeResult<Kind extends string> {
   readonly label: string;
   readonly executable?: string;
   readonly implemented: boolean;
-  readonly status: "available" | "missing";
+  readonly status: SourceControlDiscoveryStatus;
   readonly version: Option.Option<string>;
   readonly installHint: string;
   readonly detail: Option.Option<string>;
@@ -52,7 +54,7 @@ const VCS_PROBES: ReadonlyArray<VcsProbe> = [
     label: "Jujutsu",
     executable: "jj",
     versionArgs: ["--version"],
-    implemented: false,
+    implemented: true,
     installHint: "Install Jujutsu with `brew install jj` or from https://github.com/jj-vcs/jj.",
   },
 ];
@@ -98,21 +100,51 @@ export const make = Effect.gen(function* () {
         appendTruncationMarker: true,
       })
       .pipe(
-        Effect.map(
-          (result) =>
-            ({
+        Effect.map((result) => {
+          if (input.kind === "jj") {
+            const support = inspectJjVersion([result.stdout, result.stderr].join("\n"));
+            const version =
+              support.status === "invalid" ? Option.none<string>() : Option.some(support.version);
+            if (support.status !== "supported") {
+              return {
+                kind: input.kind,
+                label: input.label,
+                executable,
+                implemented: input.implemented,
+                status: "unsupported" as const,
+                version,
+                installHint: input.installHint,
+                detail: Option.some(support.detail),
+              } satisfies DiscoveryProbeResult<Kind>;
+            }
+
+            return {
               kind: input.kind,
               label: input.label,
               executable,
               implemented: input.implemented,
               status: "available" as const,
-              version: Option.orElse(firstNonEmptyLine(result.stdout), () =>
-                firstNonEmptyLine(result.stderr),
-              ),
+              version,
               installHint: input.installHint,
               detail: Option.none<string>(),
-            }) satisfies DiscoveryProbeResult<Kind>,
-        ),
+            } satisfies DiscoveryProbeResult<Kind>;
+          }
+
+          const version = Option.orElse(firstNonEmptyLine(result.stdout), () =>
+            firstNonEmptyLine(result.stderr),
+          );
+
+          return {
+            kind: input.kind,
+            label: input.label,
+            executable,
+            implemented: input.implemented,
+            status: "available" as const,
+            version,
+            installHint: input.installHint,
+            detail: Option.none<string>(),
+          } satisfies DiscoveryProbeResult<Kind>;
+        }),
         Effect.catch((cause) =>
           Effect.succeed({
             kind: input.kind,

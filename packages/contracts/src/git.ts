@@ -74,9 +74,15 @@ const GitRunStackedActionToast = Schema.Struct({
 export type GitRunStackedActionToast = typeof GitRunStackedActionToast.Type;
 
 export const VcsRef = Schema.Struct({
+  kind: Schema.optional(Schema.Literals(["branch", "bookmark"])),
   name: TrimmedNonEmptyStringSchema,
   isRemote: Schema.optional(Schema.Boolean),
   remoteName: Schema.optional(TrimmedNonEmptyStringSchema),
+  tracked: Schema.optional(Schema.Boolean),
+  conflicted: Schema.optional(Schema.Boolean),
+  targetRevision: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
+  aheadCount: Schema.optional(NonNegativeInt),
+  behindCount: Schema.optional(NonNegativeInt),
   current: Schema.Boolean,
   isDefault: Schema.Boolean,
   worktreePath: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
@@ -200,6 +206,35 @@ const VcsStatusChangeRequest = Schema.Struct({
 
 const VcsStatusLocalShape = {
   isRepo: Schema.Boolean,
+  driverKind: Schema.optional(VcsDriverKind),
+  workspaceRevision: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
+  workspaceRevisionDetails: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        commitId: TrimmedNonEmptyStringSchema,
+        changeId: Schema.optional(TrimmedNonEmptyStringSchema),
+        description: Schema.String,
+        parents: Schema.Array(TrimmedNonEmptyStringSchema),
+        empty: Schema.Boolean,
+      }),
+    ),
+  ),
+  publishRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
+  defaultRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
+  conflicts: Schema.optional(
+    Schema.Array(
+      Schema.Union([
+        Schema.Struct({
+          kind: Schema.Literal("content"),
+          path: TrimmedNonEmptyStringSchema,
+        }),
+        Schema.Struct({
+          kind: Schema.Literal("named-ref"),
+          refName: TrimmedNonEmptyStringSchema,
+        }),
+      ]),
+    ),
+  ),
   sourceControlProvider: Schema.optional(SourceControlProviderInfo),
   hasPrimaryRemote: Schema.Boolean,
   isDefaultRef: Schema.Boolean,
@@ -219,6 +254,14 @@ const VcsStatusLocalShape = {
 };
 
 const VcsStatusRemoteShape = {
+  trackedRemote: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        remoteName: TrimmedNonEmptyStringSchema,
+        refName: TrimmedNonEmptyStringSchema,
+      }),
+    ),
+  ),
   hasUpstream: Schema.Boolean,
   aheadCount: NonNegativeInt,
   behindCount: NonNegativeInt,

@@ -122,16 +122,10 @@ export class GitLabCliCommandError extends Schema.TaggedErrorClass<GitLabCliComm
   ): GitLabCliError {
     return Match.valueTags(error, {
       VcsProcessSpawnError: (cause) => new GitLabCliUnavailableError({ ...context, cause }),
-      VcsProcessExitError: (cause) => {
-        switch (cause.failureKind) {
-          case "authentication":
-            return new GitLabCliAuthenticationError({ ...context, cause });
-          case "not-found":
-          case "command-failed":
-          case undefined:
-            return new GitLabCliCommandError({ ...context, cause });
-        }
-      },
+      VcsProcessExitError: (cause) =>
+        cause.failureKind === "authentication"
+          ? new GitLabCliAuthenticationError({ ...context, cause })
+          : new GitLabCliCommandError({ ...context, cause }),
       VcsProcessTimeoutError: (cause) => new GitLabCliCommandError({ ...context, cause }),
       VcsProcessStdinWriteError: (cause) => new GitLabCliCommandError({ ...context, cause }),
       VcsProcessOutputReadError: (cause) => new GitLabCliCommandError({ ...context, cause }),
@@ -139,6 +133,7 @@ export class GitLabCliCommandError extends Schema.TaggedErrorClass<GitLabCliComm
       VcsProcessMissingExitCodeError: (cause) => new GitLabCliCommandError({ ...context, cause }),
       VcsRepositoryDetectionError: (cause) => new GitLabCliCommandError({ ...context, cause }),
       VcsUnsupportedOperationError: (cause) => new GitLabCliCommandError({ ...context, cause }),
+      VcsWorkflowError: (cause) => new GitLabCliCommandError({ ...context, cause }),
     });
   }
 }

@@ -102,6 +102,7 @@ import * as VcsDriver from "./vcs/VcsDriver.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
+import * as VcsGitProviderCompatibility from "./vcs/VcsGitProviderCompatibility.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
@@ -422,8 +423,12 @@ const buildAppUnderTest = (options?: {
             expiresAt: Option.none(),
           },
         }),
+      addRemote: () => Effect.void,
+      removeRemote: () => Effect.void,
+      resolveDefaultRemote: () => Effect.succeed(null),
       filterIgnoredPaths: (_cwd, relativePaths) => Effect.succeed(relativePaths),
       initRepository: () => Effect.void,
+      cloneRepository: () => Effect.void,
       ...options?.layers?.vcsDriver,
     };
     const vcsDriverRegistryLayer = Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
@@ -482,6 +487,9 @@ const buildAppUnderTest = (options?: {
     const gitVcsDriverLayer = Layer.mock(GitVcsDriver.GitVcsDriver)({
       ...options?.layers?.gitVcsDriver,
     });
+    const gitProviderCompatibilityLayer = VcsGitProviderCompatibility.layer.pipe(
+      Layer.provide(gitVcsDriverLayer),
+    );
     const gitManagerLayer = Layer.mock(GitManager.GitManager)({
       ...options?.layers?.gitManager,
     });
@@ -511,7 +519,7 @@ const buildAppUnderTest = (options?: {
           ...options.layers.reviewService,
         })
       : ReviewService.layer.pipe(
-          Layer.provideMerge(gitVcsDriverLayer),
+          Layer.provideMerge(gitProviderCompatibilityLayer),
           Layer.provide(vcsDriverRegistryLayer),
         );
     const vcsStatusBroadcasterLayer = options?.layers?.vcsStatusBroadcaster
@@ -4796,6 +4804,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc git methods", () =>
     Effect.gen(function* () {
+      const refreshedStatusCwds: string[] = [];
       yield* buildAppUnderTest({
         config: {
           cwd: "/tmp/repo",
@@ -4941,18 +4950,21 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             switchRef: (input) => Effect.succeed({ refName: input.refName }),
           },
           vcsStatusBroadcaster: {
-            refreshStatus: () =>
-              Effect.succeed({
-                isRepo: true,
-                hasPrimaryRemote: true,
-                isDefaultRef: true,
-                refName: "main",
-                hasWorkingTreeChanges: false,
-                workingTree: { files: [], insertions: 0, deletions: 0 },
-                hasUpstream: true,
-                aheadCount: 0,
-                behindCount: 0,
-                pr: null,
+            refreshStatus: (cwd) =>
+              Effect.sync(() => {
+                refreshedStatusCwds.push(cwd);
+                return {
+                  isRepo: true,
+                  hasPrimaryRemote: true,
+                  isDefaultRef: true,
+                  refName: "main",
+                  hasWorkingTreeChanges: false,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                };
               }),
           },
           reviewService: {
@@ -5083,13 +5095,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
 
+      const refreshCountBeforeInit = refreshedStatusCwds.length;
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
           client[WS_METHODS.vcsInit]({
             cwd: "/tmp/repo",
+            kind: "jj",
           }),
         ),
       );
+      assert.equal(refreshedStatusCwds.length, refreshCountBeforeInit + 1);
 
       const diffPreview = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
@@ -5323,6 +5338,21 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             gitManager: {
               invalidateLocalStatus: () => Effect.void,
               invalidateRemoteStatus: () => Effect.void,
+              status: () =>
+                Effect.sleep(Duration.seconds(2)).pipe(
+                  Effect.as({
+                    isRepo: true,
+                    hasPrimaryRemote: true,
+                    isDefaultRef: false,
+                    refName: "feature/demo",
+                    hasWorkingTreeChanges: false,
+                    workingTree: { files: [], insertions: 0, deletions: 0 },
+                    hasUpstream: true,
+                    aheadCount: 0,
+                    behindCount: 0,
+                    pr: null,
+                  }),
+                ),
               localStatus: () =>
                 Effect.succeed({
                   isRepo: true,
@@ -5399,6 +5429,24 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             gitManager: {
               invalidateLocalStatus: () => Effect.void,
               invalidateRemoteStatus: () => Effect.void,
+              status: () =>
+                Deferred.succeed(localRefreshStarted, undefined).pipe(
+                  Effect.ignore,
+                  Effect.andThen(
+                    Effect.succeed({
+                      isRepo: true,
+                      hasPrimaryRemote: true,
+                      isDefaultRef: false,
+                      refName: "feature/demo",
+                      hasWorkingTreeChanges: false,
+                      workingTree: { files: [], insertions: 0, deletions: 0 },
+                      hasUpstream: true,
+                      aheadCount: 0,
+                      behindCount: 0,
+                      pr: null,
+                    }),
+                  ),
+                ),
               localStatus: () =>
                 Deferred.succeed(localRefreshStarted, undefined).pipe(
                   Effect.ignore,

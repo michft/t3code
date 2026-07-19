@@ -97,6 +97,7 @@ export function buildMenuItems(
   hasPrimaryRemote = true,
 ): GitActionMenuItem[] {
   if (!gitStatus) return [];
+  if (gitStatus.driverKind === "jj") return [];
   const terminology = resolveChangeRequestTerminology(gitStatus);
 
   const hasBranch = gitStatus.refName !== null;
@@ -180,6 +181,15 @@ export function resolveQuickAction(
       disabled: true,
       kind: "show_hint",
       hint: "Git status is unavailable.",
+    };
+  }
+
+  if (gitStatus.driverKind === "jj") {
+    return {
+      label: "Finalize change",
+      disabled: true,
+      kind: "show_hint",
+      hint: "Jujutsu change finalization is not available yet.",
     };
   }
 

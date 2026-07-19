@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { VcsProcessSpawnError } from "@t3tools/contracts";
+import { JJ_MINIMUM_SUPPORTED_VERSION } from "@t3tools/shared/jjCli";
 
 import * as ServerConfig from "../config.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -126,7 +127,7 @@ it.effect("reports implemented tools separately from locally available executabl
       })),
       [
         { kind: "git", implemented: true, status: "available" },
-        { kind: "jj", implemented: false, status: "missing" },
+        { kind: "jj", implemented: true, status: "missing" },
       ],
     );
     assert.deepStrictEqual(
@@ -279,5 +280,72 @@ Logged in to gitlab.com as gitlab-user
         },
       ],
     );
+  }).pipe(Effect.provide(testLayer));
+});
+
+it.effect("reports unsupported jj versions with an actionable minimum", () => {
+  let jjOutput = {
+    stdout: "warning: development build\n",
+    stderr: "jj 0.41.0\n",
+  };
+  const processMock = {
+    run: (input: VcsProcess.VcsProcessInput) => {
+      if (input.command === "git") {
+        return Effect.succeed(processOutput("git version 2.51.0\n"));
+      }
+      if (input.command === "jj") {
+        return Effect.sync(() => processOutput(jjOutput.stdout, { stderr: jjOutput.stderr }));
+      }
+      return Effect.fail(
+        new VcsProcessSpawnError({
+          operation: input.operation,
+          command: input.command,
+          cwd: input.cwd,
+          cause: new Error(`${input.command} not found`),
+        }),
+      );
+    },
+  } satisfies Partial<VcsProcess.VcsProcess["Service"]>;
+  const testLayer = SourceControlDiscovery.layer.pipe(
+    Layer.provide(
+      ServerConfig.layerTest(process.cwd(), {
+        prefix: "t3-source-control-jj-version-discovery-",
+      }),
+    ),
+    Layer.provide(Layer.mock(VcsProcess.VcsProcess)(processMock)),
+    Layer.provide(
+      sourceControlProviderRegistryTestLayer({
+        process: processMock,
+        bitbucket: {
+          probeAuth: Effect.succeed({
+            status: "unauthenticated",
+            account: Option.none(),
+            host: Option.some("bitbucket.org"),
+            detail: Option.none(),
+          }),
+        },
+      }),
+    ),
+    Layer.provideMerge(NodeServices.layer),
+  );
+
+  return Effect.gen(function* () {
+    const discovery = yield* SourceControlDiscovery.SourceControlDiscovery;
+    const result = yield* discovery.discover;
+    const jj = result.versionControlSystems.find((item) => item.kind === "jj");
+
+    assert.ok(jj);
+    assert.strictEqual(jj.status, "unsupported");
+    assert.strictEqual(
+      Option.getOrNull(jj.detail),
+      `Jujutsu 0.41.0 is unsupported. T3 Code requires jj ${JJ_MINIMUM_SUPPORTED_VERSION} or newer.`,
+    );
+
+    jjOutput = { stdout: "", stderr: "" };
+    const emptyResult = yield* discovery.discover;
+    const emptyJj = emptyResult.versionControlSystems.find((item) => item.kind === "jj");
+    assert.ok(emptyJj);
+    assert.strictEqual(emptyJj.status, "unsupported");
+    assert.isTrue(Option.isNone(emptyJj.version));
   }).pipe(Effect.provide(testLayer));
 });

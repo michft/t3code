@@ -1,13 +1,50 @@
 import { assert, describe, expect, it, vi } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 
 import * as GitManager from "./GitManager.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsDriver from "../vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+
+function mockJjDriver(
+  overrides: Partial<VcsDriver.VcsDriver["Service"]>,
+): VcsDriver.VcsDriver["Service"] {
+  const unexpected = () => Effect.die("unexpected jj driver call");
+  return VcsDriver.VcsDriver.of({
+    capabilities: {
+      kind: "jj",
+      supportsWorktrees: false,
+      supportsBookmarks: true,
+      supportsAtomicSnapshot: true,
+      supportsPushDefaultRemote: true,
+      supportsWorkspaces: true,
+      supportsNamedPublishRefs: true,
+      supportsSelectedFileFinalize: true,
+      supportsThreadLocalRestore: true,
+      supportsDefaultRemotePush: true,
+      supportsGitProviderCompatibility: true,
+      ignoreClassifier: "native",
+    },
+    execute: unexpected,
+    detectRepository: unexpected,
+    isInsideWorkTree: unexpected,
+    listWorkspaceFiles: unexpected,
+    listRemotes: unexpected,
+    addRemote: unexpected,
+    removeRemote: unexpected,
+    resolveDefaultRemote: unexpected,
+    filterIgnoredPaths: unexpected,
+    initRepository: unexpected,
+    cloneRepository: unexpected,
+    ...overrides,
+  });
+}
 
 function makeLayer(input: {
   readonly detect: VcsDriverRegistry.VcsDriverRegistry["Service"]["detect"];
@@ -24,6 +61,84 @@ function makeLayer(input: {
 }
 
 describe("GitWorkflowService", () => {
+  it.effect("routes status and ref reads through a detected jj driver", () => {
+    const driver = mockJjDriver({
+      getLocalStatus: () =>
+        Effect.succeed({
+          isRepo: true,
+          driverKind: "jj",
+          workspaceRevision: "change-id",
+          publishRef: null,
+          defaultRef: "main@origin",
+          conflicts: [],
+          hasPrimaryRemote: true,
+          isDefaultRef: false,
+          refName: null,
+          hasWorkingTreeChanges: true,
+          workingTree: {
+            files: [{ path: "file.txt", insertions: 1, deletions: 0 }],
+            insertions: 1,
+            deletions: 0,
+          },
+        }),
+      getRemoteStatus: () =>
+        Effect.succeed({
+          trackedRemote: { remoteName: "origin", refName: "main" },
+          hasUpstream: true,
+          aheadCount: 1,
+          behindCount: 0,
+          aheadOfDefaultCount: 1,
+          pr: null,
+        }),
+      listRefs: () =>
+        Effect.succeed({
+          refs: [
+            {
+              kind: "bookmark",
+              name: "main@origin",
+              isRemote: true,
+              remoteName: "origin",
+              current: false,
+              isDefault: true,
+              worktreePath: null,
+            },
+          ],
+          isRepo: true,
+          hasPrimaryRemote: true,
+          nextCursor: null,
+          totalCount: 1,
+        }),
+    });
+    const detect = () =>
+      DateTime.now.pipe(
+        Effect.map((observedAt) => ({
+          kind: "jj" as const,
+          repository: {
+            kind: "jj" as const,
+            rootPath: "/repo",
+            metadataPath: "/repo/.jj",
+            colocated: true,
+            freshness: { source: "live-local" as const, observedAt, expiresAt: Option.none() },
+          },
+          driver,
+        })),
+      );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const status = yield* workflow.status({ cwd: "/repo" });
+      const refs = yield* workflow.listRefs({ cwd: "/repo" });
+
+      assert.equal(status.driverKind, "jj");
+      assert.equal(status.refName, null);
+      assert.equal(status.workspaceRevision, "change-id");
+      assert.equal(status.aheadCount, 1);
+      assert.equal(status.trackedRemote?.refName, "main");
+      assert.equal(refs.refs[0]?.kind, "bookmark");
+      assert.isFalse(refs.refs[0]?.current);
+    }).pipe(Effect.provide(makeLayer({ detect })));
+  });
+
   it.effect("returns an empty local status when no VCS repository is detected", () =>
     Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;
@@ -150,7 +265,7 @@ describe("GitWorkflowService", () => {
         _tag: "GitManagerError",
         operation: "GitWorkflowService.status",
         cwd: "/repo",
-        detail: "Failed to detect a VCS repository for this Git workflow.",
+        detail: "Failed to detect a VCS repository for this status workflow.",
       });
       expect(error.message).not.toContain(cause.detail);
     }).pipe(
@@ -178,7 +293,7 @@ describe("GitWorkflowService", () => {
         operation: "GitWorkflowService.listRefs",
         command: "vcs-route",
         cwd: "/repo",
-        detail: "Failed to detect a VCS repository for this Git command.",
+        detail: "Failed to detect a VCS repository for this command.",
       });
       expect(error.message).not.toContain(cause.detail);
     }).pipe(

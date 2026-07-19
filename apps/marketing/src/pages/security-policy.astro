@@ -18,12 +18,22 @@ const sections = [
   heading="T3 Code Security Policy"
   lede="Security is a shared responsibility. This policy explains how to report a vulnerability, how we protect T3 Tools-operated services, and how you can secure the environments and providers you connect to T3 Code."
   effectiveDate="2026-07-15"
-  lastUpdated="2026-07-15"
+  lastUpdated="2026-07-19"
   sections={sections}
 >
   <section id="introduction">
     <p class="section-number">01</p>
     <h2>Introduction</h2>
+    <p>
+      <strong>Fork notice:</strong> This repository is the independently maintained{" "}<a
+        href="https://github.com/michft/t3code">michft/t3code fork</a
+      >. Report vulnerabilities introduced by or specific to this fork through a{" "}<a
+        href="https://github.com/michft/t3code/security/advisories/new"
+        >private GitHub security advisory</a
+      >. Do not send fork-specific security reports, bug reports, or support requests to the
+      upstream T3 Code project or its maintainers. Upstream contacts listed below apply only to
+      issues independently affecting upstream-operated code or services.
+    </p>
     <p>
       This Security Policy describes the vulnerability-reporting process and security practices for
       the T3 Code desktop and mobile applications, the hosted application at{" "}<a
@@ -45,10 +55,13 @@ const sections = [
     <p class="section-number">02</p>
     <h2>Reporting Security Issues</h2>
     <p>
-      If you believe you have found a security vulnerability affecting T3 Code or T3 Tools-operated
-      infrastructure, email{" "}<a href="mailto:security@ping.gg">security@ping.gg</a>. Please do not
-      disclose the issue publicly until we have had a reasonable opportunity to investigate and
-      remediate it.
+      Report vulnerabilities introduced by or specific to this fork through a{" "}<a
+        href="https://github.com/michft/t3code/security/advisories/new"
+        >private GitHub security advisory</a
+      >. For issues independently affecting upstream-operated T3 Code, T3 Tools code, or services,
+      email{" "}<a href="mailto:security@ping.gg">security@ping.gg</a>. Please do not disclose the issue
+      publicly until the responsible maintainers have had a reasonable opportunity to investigate
+      and remediate it.
     </p>
     <p>Please include, when available:</p>
     <ul>
