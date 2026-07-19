@@ -121,7 +121,7 @@ export const make = Effect.gen(function* () {
         detail: `Jujutsu synchronization requires a jj repository; detected ${handle.kind}.`,
       });
     }
-    return handle.driver;
+    return { driver: handle.driver, kind: handle.kind };
   });
 
   const readRevisions = Effect.fn("VcsSyncService.readRevisions")(function* (
@@ -264,7 +264,13 @@ export const make = Effect.gen(function* () {
 
   const fetch: VcsSyncService["Service"]["fetch"] = Effect.fn("VcsSyncService.fetch")(
     function* (input) {
-      const driver = yield* resolveJjDriver(input.cwd);
+      yield* Effect.annotateCurrentSpan({
+        "vcs.kind": "unknown",
+        "vcs.workflow": "sync",
+        "vcs.operation": "fetch",
+      });
+      const { driver, kind } = yield* resolveJjDriver(input.cwd);
+      yield* Effect.annotateCurrentSpan({ "vcs.kind": kind });
       const remoteName = yield* resolveRemoteName(driver, input.cwd, input.remoteName);
       yield* driver.execute({
         operation: "VcsSyncService.fetch.snapshot",
@@ -379,13 +385,19 @@ export const make = Effect.gen(function* () {
 
   const publish: VcsSyncService["Service"]["publish"] = Effect.fn("VcsSyncService.publish")(
     function* (input) {
+      yield* Effect.annotateCurrentSpan({
+        "vcs.kind": "unknown",
+        "vcs.workflow": "sync",
+        "vcs.operation": "publish",
+      });
       if (input.publishRef.kind !== "bookmark") {
         return yield* syncError({
           operation: "publish",
           detail: "Jujutsu publishing requires an explicit bookmark.",
         });
       }
-      const driver = yield* resolveJjDriver(input.cwd);
+      const { driver, kind } = yield* resolveJjDriver(input.cwd);
+      yield* Effect.annotateCurrentSpan({ "vcs.kind": kind });
       const remoteName = yield* resolveRemoteName(driver, input.cwd, input.remoteName);
       const bookmarks = yield* readBookmarks(driver, input.cwd);
       const local = bookmarks.find(
@@ -448,7 +460,13 @@ export const make = Effect.gen(function* () {
     "VcsSyncService.readRangeContext",
   )(
     function* (input) {
-      const driver = yield* resolveJjDriver(input.cwd);
+      yield* Effect.annotateCurrentSpan({
+        "vcs.kind": "unknown",
+        "vcs.workflow": "sync",
+        "vcs.operation": "read-range-context",
+      });
+      const { driver, kind } = yield* resolveJjDriver(input.cwd);
+      yield* Effect.annotateCurrentSpan({ "vcs.kind": kind });
       const base = quoteJjSymbol(input.baseRevision);
       const target = quoteJjSymbol(input.targetRevision);
       const revisions = yield* readRevisions(driver, input.cwd, `${base}..${target}`);
