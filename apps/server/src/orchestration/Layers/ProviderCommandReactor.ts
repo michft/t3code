@@ -40,6 +40,7 @@ import {
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
+import { VcsWorkspaceService } from "../../vcs/VcsWorkspaceService.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
@@ -194,6 +195,7 @@ const make = Effect.gen(function* () {
   const providerRegistry = yield* ProviderRegistry;
   const gitWorkflow = yield* GitWorkflowService;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
+  const vcsWorkspaceService = yield* VcsWorkspaceService;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
   const serverCommandId = (tag: string) =>
@@ -752,10 +754,44 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const thread = yield* resolveThread(event.payload.threadId);
-    if (!thread) {
+    const resolvedThread = yield* resolveThread(event.payload.threadId);
+    if (!resolvedThread) {
       return;
     }
+    const project = yield* resolveProject(resolvedThread.projectId);
+    const thread = yield* Effect.gen(function* () {
+      if (!resolvedThread.vcsWorkspace || !project) {
+        return resolvedThread;
+      }
+      const workspace = yield* vcsWorkspaceService.ensureThreadWorkspace({
+        cwd: project.workspaceRoot,
+        threadId: resolvedThread.id,
+        workspace: resolvedThread.vcsWorkspace,
+      });
+      const workspaceChanged =
+        workspace.name !== resolvedThread.vcsWorkspace.name ||
+        workspace.rootPath !== resolvedThread.vcsWorkspace.rootPath ||
+        workspace.workspaceRevision?.commitId !==
+          resolvedThread.vcsWorkspace.workspaceRevision?.commitId ||
+        workspace.workspaceRevision?.changeId !==
+          resolvedThread.vcsWorkspace.workspaceRevision?.changeId ||
+        workspace.baseRevision?.commitId !== resolvedThread.vcsWorkspace.baseRevision?.commitId ||
+        workspace.baseRevision?.changeId !== resolvedThread.vcsWorkspace.baseRevision?.changeId;
+      if (workspaceChanged) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.meta.update",
+          commandId: yield* serverCommandId("thread-workspace-refresh"),
+          threadId: resolvedThread.id,
+          worktreePath: workspace.rootPath,
+          vcsWorkspace: workspace,
+        });
+      }
+      return {
+        ...resolvedThread,
+        worktreePath: workspace.rootPath,
+        vcsWorkspace: workspace,
+      };
+    });
 
     const message = thread.messages.find((entry) => entry.id === event.payload.messageId);
     if (!message || message.role !== "user") {
@@ -773,7 +809,6 @@ const make = Effect.gen(function* () {
     const isFirstUserMessageTurn =
       thread.messages.filter((entry) => entry.role === "user").length === 1;
     if (isFirstUserMessageTurn) {
-      const project = yield* resolveProject(thread.projectId);
       const generationCwd =
         resolveThreadWorkspaceCwd({
           thread,

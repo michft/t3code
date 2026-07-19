@@ -15,11 +15,12 @@ import {
   RuntimeMode,
   ThreadId,
   TurnId,
+  VcsWorkspaceIdentity,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Context from "effect/Context";
-import type * as Effect from "effect/Effect";
+import * as Effect from "effect/Effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
@@ -32,6 +33,9 @@ export const ProjectionThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  vcsWorkspace: Schema.NullOr(VcsWorkspaceIdentity).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   latestTurnId: Schema.NullOr(TurnId),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

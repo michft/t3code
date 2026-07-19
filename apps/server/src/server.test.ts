@@ -102,6 +102,7 @@ import * as VcsDriver from "./vcs/VcsDriver.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
+import * as VcsWorkspaceService from "./vcs/VcsWorkspaceService.ts";
 import * as VcsGitProviderCompatibility from "./vcs/VcsGitProviderCompatibility.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
@@ -329,6 +330,7 @@ const buildAppUnderTest = (options?: {
     >;
     reviewService?: Partial<ReviewService.ReviewService["Service"]>;
     vcsStatusBroadcaster?: Partial<VcsStatusBroadcaster.VcsStatusBroadcaster["Service"]>;
+    vcsWorkspaceService?: Partial<VcsWorkspaceService.VcsWorkspaceService["Service"]>;
     projectSetupScriptRunner?: Partial<
       ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]
     >;
@@ -397,7 +399,7 @@ const buildAppUnderTest = (options?: {
       execute: () =>
         Effect.succeed({
           exitCode: ChildProcessSpawner.ExitCode(0),
-          stdout: "",
+          stdout: "0000000000000000000000000000000000000000\n",
           stderr: "",
           stdoutTruncated: false,
           stderrTruncated: false,
@@ -514,6 +516,14 @@ const buildAppUnderTest = (options?: {
     const vcsProvisioningLayer = VcsProvisioningService.layer.pipe(
       Layer.provide(vcsDriverRegistryLayer),
     );
+    const vcsWorkspaceLayer = options?.layers?.vcsWorkspaceService
+      ? Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({
+          ...options.layers.vcsWorkspaceService,
+        })
+      : VcsWorkspaceService.layer.pipe(
+          Layer.provideMerge(vcsDriverRegistryLayer),
+          Layer.provideMerge(gitWorkflowLayer),
+        );
     const reviewLayer = options?.layers?.reviewService
       ? Layer.mock(ReviewService.ReviewService)({
           ...options.layers.reviewService,
@@ -639,6 +649,7 @@ const buildAppUnderTest = (options?: {
       Layer.provide(gitWorkflowLayer),
       Layer.provide(reviewLayer),
       Layer.provide(vcsProvisioningLayer),
+      Layer.provide(vcsWorkspaceLayer),
       Layer.provide(
         Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({
           ...options?.layers?.sourceControlRepositoryService,
@@ -718,6 +729,9 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.projectionSnapshotQuery,
         }),
       ),
+    );
+
+    const appLayer = servedRoutesLayer.pipe(
       Layer.provide(
         Layer.mock(CheckpointDiffQuery.CheckpointDiffQuery)({
           getTurnDiff: () =>
@@ -737,9 +751,6 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.checkpointDiffQuery,
         }),
       ),
-    );
-
-    const appLayer = servedRoutesLayer.pipe(
       Layer.provide(
         Layer.mock(BrowserTraceCollector.BrowserTraceCollector)({
           record: () => Effect.void,

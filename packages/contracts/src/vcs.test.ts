@@ -37,6 +37,7 @@ describe("VCS-neutral persistence contracts", () => {
       name: "thread-demo",
       rootPath: "/tmp/jj-workspace",
       workspaceRevision: { commitId: "abc123", changeId: "change123" },
+      baseRevision: { commitId: "base123", changeId: "base-change123" },
       publishRef: { kind: "bookmark", name: "feature/demo" },
     });
     const encoded = encodeThreadWorkspace({ version: 2, workspace });

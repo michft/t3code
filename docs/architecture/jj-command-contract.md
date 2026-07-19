@@ -97,6 +97,26 @@ Commands below omit the standard `--color=never --no-pager` prefix and repositor
 | Fetch                      | `jj git fetch --remote <remote>`                           | Exit status; then reread bookmarks                                  |
 | Push one bookmark          | `jj git push --remote <remote> --bookmark <name>`          | Exit status; never push all bookmarks                               |
 
+## Thread workspace lifecycle
+
+Thread workspace names are `t3code-` plus the first 20 hexadecimal characters of the SHA-256 digest
+of the thread ID. The mapping is deterministic, filesystem-safe, and independent of user-selected
+bookmark names.
+
+Creation resolves and stores the requested base revision before `jj workspace add`. A successful
+result is accepted only after workspace metadata and the new working-copy revision are reread. The
+persisted identity contains the workspace name and path, current commit/change IDs, base
+commit/change IDs, and the optional publish bookmark.
+
+Reconnect validates the path's current workspace name. A stale working copy is logged before
+`jj workspace update-stale` runs, then its revision is reread. A missing directory with retained jj
+metadata is repaired by forgetting the missing workspace and recreating it at the persisted base.
+Non-empty paths owned by another or unknown workspace are never replaced.
+
+Removal validates ownership, runs `jj workspace forget <name>`, and only then recursively removes
+the workspace directory. Missing metadata and missing directories are idempotent; ownership
+mismatches fail without deleting files.
+
 Bookmark/revision names that enter revset positions must use `quoteJjSymbol()`. Exact file arguments must use `root-file:` filesets with template-language string quoting; this helper remains a Phase 5 implementation task.
 
 ## Special-character results
