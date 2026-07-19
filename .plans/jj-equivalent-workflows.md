@@ -1,6 +1,6 @@
 # jj Equivalent Workflows Plan
 
-Status: Phases 0-3 implemented locally; Phase 4 next
+Status: Phases 0-4 implemented locally; Phase 5 next
 
 Scope: server, shared contracts, web, mobile, provider integrations, tests, and documentation
 
@@ -198,6 +198,11 @@ Exit criteria:
 - equivalent Git and jj fixtures produce equivalent review file lists.
 
 ### Phase 4: thread workspaces
+
+Implementation status: implemented locally. Thread bootstrap and generic workspace RPCs now route
+through `VcsWorkspaceService`; JJ workspaces use deterministic thread names, persisted revision/base
+identity, stale repair, idempotent recreation, and forget-before-delete cleanup. Git worktrees retain
+their existing behavior through the same service.
 
 Replace worktree assumptions with a generic isolated-workspace workflow.
 

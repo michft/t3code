@@ -136,6 +136,7 @@ export const VcsWorkspaceIdentity = Schema.Struct({
   name: Schema.NullOr(TrimmedNonEmptyString),
   rootPath: TrimmedNonEmptyString,
   workspaceRevision: Schema.NullOr(VcsRevision),
+  baseRevision: Schema.optional(Schema.NullOr(VcsRevision)),
   publishRef: Schema.NullOr(VcsNamedRef),
 });
 export type VcsWorkspaceIdentity = typeof VcsWorkspaceIdentity.Type;

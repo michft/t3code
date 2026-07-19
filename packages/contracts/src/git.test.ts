@@ -42,6 +42,17 @@ describe("VcsCreateWorktreeInput", () => {
 
     expect(parsed.baseRefName).toBe("origin/main");
   });
+
+  it("accepts a thread id for VCS-neutral workspace creation", () => {
+    const parsed = decodeCreateWorktreeInput({
+      cwd: "/repo",
+      threadId: "thread-workspace",
+      refName: "main",
+      path: null,
+    });
+
+    expect(parsed.threadId).toBe("thread-workspace");
+  });
 });
 
 describe("GitPreparePullRequestThreadInput", () => {

@@ -64,6 +64,7 @@ import * as VcsProjectConfig from "./vcs/VcsProjectConfig.ts";
 import * as VcsProcess from "./vcs/VcsProcess.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
+import * as VcsWorkspaceService from "./vcs/VcsWorkspaceService.ts";
 import * as VcsGitProviderCompatibility from "./vcs/VcsGitProviderCompatibility.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
@@ -218,6 +219,11 @@ const GitWorkflowLayerLive = GitWorkflowService.layer.pipe(
   Layer.provideMerge(GitLayerLive),
 );
 
+const VcsWorkspaceLayerLive = VcsWorkspaceService.layer.pipe(
+  Layer.provideMerge(VcsDriverRegistryLayerLive),
+  Layer.provideMerge(GitWorkflowLayerLive),
+);
+
 const SourceControlRepositoryServiceLayerLive = SourceControlRepositoryService.layer.pipe(
   Layer.provideMerge(VcsGitProviderCompatibilityLayerLive),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
@@ -233,6 +239,7 @@ const VcsLayerLive = Layer.empty.pipe(
   Layer.provideMerge(VcsDriverRegistryLayerLive),
   Layer.provideMerge(VcsProvisioningService.layer.pipe(Layer.provide(VcsDriverRegistryLayerLive))),
   Layer.provideMerge(GitWorkflowLayerLive),
+  Layer.provideMerge(VcsWorkspaceLayerLive),
   Layer.provideMerge(ReviewLayerLive),
   Layer.provideMerge(SourceControlRepositoryServiceLayerLive),
   Layer.provideMerge(VcsStatusBroadcaster.layer.pipe(Layer.provide(GitWorkflowLayerLive))),

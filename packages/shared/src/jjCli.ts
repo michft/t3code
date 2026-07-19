@@ -53,6 +53,15 @@ export interface JjBookmarkRecord {
   readonly tracking_target?: ReadonlyArray<string>;
 }
 
+export interface JjWorkspaceRecord {
+  readonly name: string;
+  readonly target: {
+    readonly commit_id: string;
+    readonly parents: ReadonlyArray<string>;
+    readonly change_id: string;
+  };
+}
+
 function isStringArray(value: unknown): value is ReadonlyArray<string> {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
@@ -90,6 +99,24 @@ export function isJjBookmarkRecord(value: unknown): value is JjBookmarkRecord {
     (record.remote === undefined || typeof record.remote === "string") &&
     isStringArray(record.target) &&
     (record.tracking_target === undefined || isStringArray(record.tracking_target))
+  );
+}
+
+export function isJjWorkspaceRecord(value: unknown): value is JjWorkspaceRecord {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.name !== "string" ||
+    typeof record.target !== "object" ||
+    record.target === null
+  ) {
+    return false;
+  }
+  const target = record.target as Record<string, unknown>;
+  return (
+    typeof target.commit_id === "string" &&
+    typeof target.change_id === "string" &&
+    isStringArray(target.parents)
   );
 }
 

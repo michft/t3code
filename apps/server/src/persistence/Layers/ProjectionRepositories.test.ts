@@ -74,6 +74,14 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
     Effect.gen(function* () {
       const threads = yield* ProjectionThreadRepository;
       const sql = yield* SqlClient.SqlClient;
+      const vcsWorkspace = {
+        driverKind: "jj" as const,
+        name: "t3code-thread-null-options",
+        rootPath: "/tmp/workspaces/thread-null-options",
+        workspaceRevision: { commitId: "workspace-commit", changeId: "workspace-change" },
+        baseRevision: { commitId: "base-commit", changeId: "base-change" },
+        publishRef: { kind: "bookmark" as const, name: "feature/null-options" },
+      };
 
       yield* threads.upsert({
         threadId: ThreadId.make("thread-null-options"),
@@ -87,6 +95,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         interactionMode: "default",
         branch: null,
         worktreePath: null,
+        vcsWorkspace,
         latestTurnId: null,
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-24T00:00:00.000Z",
@@ -126,6 +135,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         instanceId: ProviderInstanceId.make("claudeAgent"),
         model: "claude-opus-4-6",
       });
+      assert.deepStrictEqual(Option.getOrNull(persisted)?.vcsWorkspace, vcsWorkspace);
     }),
   );
 });

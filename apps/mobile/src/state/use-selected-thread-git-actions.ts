@@ -61,6 +61,7 @@ export function useSelectedThreadGitActions() {
       nextState: {
         readonly branch?: string | null;
         readonly worktreePath?: string | null;
+        readonly vcsWorkspace?: EnvironmentThreadShell["vcsWorkspace"];
       },
     ) => {
       return updateThreadMetadata({
@@ -69,6 +70,7 @@ export function useSelectedThreadGitActions() {
           threadId: thread.id,
           ...(nextState.branch !== undefined ? { branch: nextState.branch } : {}),
           ...(nextState.worktreePath !== undefined ? { worktreePath: nextState.worktreePath } : {}),
+          ...(nextState.vcsWorkspace !== undefined ? { vcsWorkspace: nextState.vcsWorkspace } : {}),
         },
       });
     },
@@ -178,6 +180,7 @@ export function useSelectedThreadGitActions() {
       readonly nextThreadState?: {
         readonly branch?: string | null;
         readonly worktreePath?: string | null;
+        readonly vcsWorkspace?: EnvironmentThreadShell["vcsWorkspace"];
       };
     }): Promise<AtomCommandResult<void, unknown>> => {
       if (input.nextThreadState) {
@@ -269,6 +272,7 @@ export function useSelectedThreadGitActions() {
             environmentId: thread.environmentId,
             input: {
               cwd: project.workspaceRoot,
+              threadId: thread.id,
               refName: nextWorktree.baseBranch,
               newRefName: sanitizeFeatureBranchName(nextWorktree.newBranch),
               path: null,
@@ -281,8 +285,10 @@ export function useSelectedThreadGitActions() {
             thread,
             cwd: result.value.worktree.path,
             nextThreadState: {
-              branch: result.value.worktree.refName,
+              branch:
+                result.value.workspace?.driverKind === "jj" ? null : result.value.worktree.refName,
               worktreePath: result.value.worktree.path,
+              ...(result.value.workspace ? { vcsWorkspace: result.value.workspace } : {}),
             },
           });
           return AsyncResult.isFailure(syncResult) ? AsyncResult.failure(syncResult.cause) : result;

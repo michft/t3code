@@ -26,6 +26,7 @@ import {
   EventId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
+  GitCommandError,
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
@@ -56,6 +57,7 @@ import {
   type TerminalError,
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
+  type VcsCreateWorktreeResult,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -90,6 +92,7 @@ import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
+import * as VcsWorkspaceService from "./vcs/VcsWorkspaceService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
@@ -409,6 +412,7 @@ const makeWsRpcLayer = (
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
+      const vcsWorkspaceService = yield* VcsWorkspaceService.VcsWorkspaceService;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -695,20 +699,36 @@ const makeWsRpcLayer = (
           let targetProjectId = bootstrap?.createThread?.projectId;
           let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
           let targetWorktreePath = bootstrap?.createThread?.worktreePath ?? null;
+          let createdVcsWorkspace = bootstrap?.createThread?.vcsWorkspace ?? null;
+          let workspaceAttachedToThread = createdVcsWorkspace !== null;
+
+          const cleanupCreatedWorkspace = () =>
+            !workspaceAttachedToThread && createdVcsWorkspace && targetProjectCwd
+              ? vcsWorkspaceService
+                  .removeThreadWorkspace({
+                    cwd: targetProjectCwd,
+                    workspace: createdVcsWorkspace,
+                  })
+                  .pipe(Effect.ignoreCause({ log: true }))
+              : Effect.void;
 
           const cleanupCreatedThread = () =>
-            createdThread
-              ? serverCommandId("bootstrap-thread-delete").pipe(
-                  Effect.flatMap((commandId) =>
-                    orchestrationEngine.dispatch({
-                      type: "thread.delete",
-                      commandId,
-                      threadId: command.threadId,
-                    }),
-                  ),
-                  Effect.ignoreCause({ log: true }),
-                )
-              : Effect.void;
+            cleanupCreatedWorkspace().pipe(
+              Effect.andThen(
+                createdThread
+                  ? serverCommandId("bootstrap-thread-delete").pipe(
+                      Effect.flatMap((commandId) =>
+                        orchestrationEngine.dispatch({
+                          type: "thread.delete",
+                          commandId,
+                          threadId: command.threadId,
+                        }),
+                      ),
+                      Effect.ignoreCause({ log: true }),
+                    )
+                  : Effect.void,
+              ),
+            );
 
           const recordSetupScriptLaunchFailure = (input: {
             readonly error: ProjectSetupScriptRunner.ProjectSetupScriptRunnerError;
@@ -838,40 +858,38 @@ const makeWsRpcLayer = (
                 interactionMode: bootstrap.createThread.interactionMode,
                 branch: bootstrap.createThread.branch,
                 worktreePath: bootstrap.createThread.worktreePath,
+                ...(bootstrap.createThread.vcsWorkspace !== undefined
+                  ? { vcsWorkspace: bootstrap.createThread.vcsWorkspace }
+                  : {}),
                 createdAt: bootstrap.createThread.createdAt,
               });
               createdThread = true;
             }
 
             if (bootstrap?.prepareWorktree) {
-              let worktreeBaseRef = bootstrap.prepareWorktree.baseBranch;
-              if (bootstrap.prepareWorktree.startFromOrigin) {
-                yield* gitWorkflow.fetchRemote({
-                  cwd: bootstrap.prepareWorktree.projectCwd,
-                  remoteName: "origin",
-                });
-                const resolvedRemoteBase = yield* gitWorkflow.resolveRemoteTrackingCommit({
-                  cwd: bootstrap.prepareWorktree.projectCwd,
-                  refName: bootstrap.prepareWorktree.baseBranch,
-                  fallbackRemoteName: "origin",
-                });
-                worktreeBaseRef = resolvedRemoteBase.commitSha;
-              }
-              const worktree = yield* gitWorkflow.createWorktree({
+              createdVcsWorkspace = yield* vcsWorkspaceService.createThreadWorkspace({
                 cwd: bootstrap.prepareWorktree.projectCwd,
-                refName: worktreeBaseRef,
-                newRefName: bootstrap.prepareWorktree.branch,
+                threadId: command.threadId,
+                baseRevision: bootstrap.prepareWorktree.baseBranch,
                 baseRefName: bootstrap.prepareWorktree.baseBranch,
-                path: null,
+                ...(bootstrap.prepareWorktree.branch
+                  ? { publishRef: bootstrap.prepareWorktree.branch }
+                  : {}),
+                ...(bootstrap.prepareWorktree.startFromOrigin ? { startFromOrigin: true } : {}),
               });
-              targetWorktreePath = worktree.worktree.path;
+              targetWorktreePath = createdVcsWorkspace.rootPath;
               yield* orchestrationEngine.dispatch({
                 type: "thread.meta.update",
                 commandId: yield* serverCommandId("bootstrap-thread-meta-update"),
                 threadId: command.threadId,
-                branch: worktree.worktree.refName,
+                branch:
+                  createdVcsWorkspace.driverKind === "git"
+                    ? (createdVcsWorkspace.publishRef?.name ?? createdVcsWorkspace.name)
+                    : null,
                 worktreePath: targetWorktreePath,
+                vcsWorkspace: createdVcsWorkspace,
               });
+              workspaceAttachedToThread = true;
               yield* refreshGitStatus(targetWorktreePath);
             }
 
@@ -1603,7 +1621,39 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateWorktree,
-            gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            (input.threadId
+              ? vcsWorkspaceService
+                  .createThreadWorkspace({
+                    cwd: input.cwd,
+                    threadId: input.threadId,
+                    baseRevision: input.refName,
+                    ...(input.baseRefName ? { baseRefName: input.baseRefName } : {}),
+                    ...(input.newRefName ? { publishRef: input.newRefName } : {}),
+                    ...(input.path ? { path: input.path } : {}),
+                  })
+                  .pipe(
+                    Effect.map(
+                      (workspace): VcsCreateWorktreeResult => ({
+                        worktree: {
+                          path: workspace.rootPath,
+                          refName: workspace.publishRef?.name ?? workspace.name ?? input.refName,
+                        },
+                        workspace,
+                      }),
+                    ),
+                    Effect.mapError(
+                      (cause) =>
+                        new GitCommandError({
+                          operation: "vcs.createWorktree",
+                          command: "vcs-workspace",
+                          cwd: input.cwd,
+                          detail: cause.message,
+                          cause,
+                        }),
+                    ),
+                  )
+              : gitWorkflow.createWorktree(input)
+            ).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>

@@ -882,6 +882,8 @@ export const ThreadCreatedPayload = Schema.Struct({
 
 export const ThreadDeletedPayload = Schema.Struct({
   threadId: ThreadId,
+  vcsWorkspace: Schema.optional(Schema.NullOr(VcsWorkspaceIdentity)),
+  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   deletedAt: IsoDateTime,
 });
 
