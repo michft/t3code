@@ -66,6 +66,7 @@ import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsChangeService from "./vcs/VcsChangeService.ts";
 import * as VcsSyncService from "./vcs/VcsSyncService.ts";
+import * as VcsReviewService from "./vcs/VcsReviewService.ts";
 import * as VcsWorkspaceService from "./vcs/VcsWorkspaceService.ts";
 import * as VcsGitProviderCompatibility from "./vcs/VcsGitProviderCompatibility.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
@@ -210,6 +211,10 @@ const VcsChangeLayerLive = VcsChangeService.layer.pipe(
 
 const VcsSyncLayerLive = VcsSyncService.layer.pipe(Layer.provideMerge(VcsDriverRegistryLayerLive));
 
+const VcsReviewLayerLive = VcsReviewService.layer.pipe(
+  Layer.provideMerge(VcsDriverRegistryLayerLive),
+);
+
 const GitManagerLayerLive = GitManager.layer.pipe(
   Layer.provideMerge(ProjectSetupScriptRunner.layer),
   Layer.provideMerge(GitVcsDriver.layer),
@@ -217,6 +222,7 @@ const GitManagerLayerLive = GitManager.layer.pipe(
   Layer.provideMerge(TextGeneration.layer),
   Layer.provideMerge(VcsChangeLayerLive),
   Layer.provideMerge(VcsSyncLayerLive),
+  Layer.provideMerge(VcsReviewLayerLive),
 );
 
 const GitLayerLive = Layer.empty.pipe(
