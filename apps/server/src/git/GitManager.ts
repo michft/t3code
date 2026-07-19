@@ -1510,6 +1510,13 @@ export const make = Effect.gen(function* () {
       );
 
       if (driverKind === "jj") {
+        if (input.mode !== "local" && !input.threadId) {
+          return yield* new GitManagerError({
+            operation: "preparePullRequestThread",
+            cwd: input.cwd,
+            detail: "A thread id is required when preparing a pull request worktree.",
+          });
+        }
         const remoteInfo = toPullRequestHeadRemoteInfo(pullRequestSummary);
         const headRepository = resolveHeadRepositoryNameWithOwner({
           ...pullRequest,

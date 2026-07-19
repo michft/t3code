@@ -2852,6 +2852,32 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         },
       ]);
       expect(ghCalls).not.toContain("pr checkout 67 --force");
+      const threadId = asThreadId("thread-jj-worktree-review");
+
+      yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "#67",
+        mode: "worktree",
+        threadId,
+      });
+
+      expect(reviewCalls[1]).toEqual({
+        cwd: repoDir,
+        changeRequestNumber: 67,
+        headRefName: "feature/jj-review",
+        mode: "worktree",
+        threadId,
+      });
+
+      const error = yield* Effect.flip(
+        preparePullRequestThread(manager, {
+          cwd: repoDir,
+          reference: "#67",
+          mode: "worktree",
+        }),
+      );
+      expect(error.message).toContain("thread id is required");
+      expect(reviewCalls).toHaveLength(2);
     }),
   );
 
