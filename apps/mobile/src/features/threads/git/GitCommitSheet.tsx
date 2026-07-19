@@ -38,6 +38,8 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
 
   const busy = gitState.gitOperationLabel !== null;
   const isJjRepository = gitStatus.data?.driverKind === "jj";
+  const jjPublishRef = selectedThread?.vcsWorkspace?.publishRef ?? null;
+  const hasJjPublishRef = isJjRepository && jjPublishRef !== null;
   const isDefaultRef = gitStatus.data?.isDefaultRef ?? false;
   const allFiles = gitStatus.data?.workingTree?.files ?? [];
 
@@ -57,13 +59,13 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
       const commitMessage = dialogCommitMessage.trim();
       navigation.goBack();
       await gitActions.onRunSelectedThreadGitAction({
-        action: "commit",
+        action: !featureBranch && hasJjPublishRef ? "commit_push" : "commit",
         featureBranch,
         ...(commitMessage ? { commitMessage } : {}),
         ...(!allSelected ? { filePaths: selectedFiles.map((file) => file.path) } : {}),
       });
     },
-    [allSelected, dialogCommitMessage, gitActions, navigation, selectedFiles],
+    [allSelected, dialogCommitMessage, gitActions, hasJjPublishRef, navigation, selectedFiles],
   );
 
   return (
@@ -230,7 +232,9 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
           <View className="flex-1">
             <SheetActionButton
               icon="checkmark.circle"
-              label={isJjRepository ? "Finalize" : "Commit"}
+              label={
+                isJjRepository ? (hasJjPublishRef ? "Finalize & publish" : "Finalize") : "Commit"
+              }
               tone="primary"
               disabled={noneSelected || busy}
               onPress={() => void runCommitAction(false)}

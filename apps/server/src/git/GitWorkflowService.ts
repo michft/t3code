@@ -31,6 +31,7 @@ import {
 import * as GitManager from "./GitManager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as VcsSyncService from "../vcs/VcsSyncService.ts";
 import { mergeGitStatusParts } from "@t3tools/shared/git";
 
 export class GitWorkflowService extends Context.Service<
@@ -135,6 +136,7 @@ export const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const gitManager = yield* GitManager.GitManager;
+  const vcsSync = yield* VcsSyncService.VcsSyncService;
 
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
     operation: string,
@@ -318,13 +320,48 @@ export const make = Effect.gen(function* () {
     invalidateRemoteStatus: gitManager.invalidateRemoteStatus,
     invalidateStatus: gitManager.invalidateStatus,
     pullCurrentBranch: (cwd) =>
-      ensureGitCommand("GitWorkflowService.pullCurrentBranch", cwd).pipe(
-        Effect.andThen(git.pullCurrentBranch(cwd)),
+      detectRepositoryForCommand("GitWorkflowService.pullCurrentBranch", cwd).pipe(
+        Effect.flatMap((handle) => {
+          if (!handle || handle.kind === "git") return git.pullCurrentBranch(cwd);
+          if (handle.kind !== "jj") {
+            return Effect.fail(
+              new GitCommandError({
+                operation: "GitWorkflowService.pullCurrentBranch",
+                command: "vcs-route",
+                cwd,
+                detail: `Fetch is unavailable for ${handle.kind} repositories.`,
+              }),
+            );
+          }
+          return vcsSync.fetch({ cwd }).pipe(
+            Effect.map((result) => ({
+              status:
+                result.status === "updated"
+                  ? ("pulled" as const)
+                  : result.status === "needs-rebase"
+                    ? ("fetched_needs_rebase" as const)
+                    : result.status === "needs-resolution"
+                      ? ("fetched_needs_resolution" as const)
+                      : ("skipped_up_to_date" as const),
+              refName: result.refName,
+              upstreamRef: result.upstreamRef,
+              workspaceRevision: result.workspaceRevision,
+              conflicts: result.conflicts,
+            })),
+            Effect.mapError(
+              (cause) =>
+                new GitCommandError({
+                  operation: "GitWorkflowService.pullCurrentBranch",
+                  command: "jj",
+                  cwd,
+                  detail: cause.detail,
+                  cause,
+                }),
+            ),
+          );
+        }),
       ),
-    runStackedAction: (input, options) =>
-      ensureGit("GitWorkflowService.runStackedAction", input.cwd).pipe(
-        Effect.andThen(gitManager.runStackedAction(input, options)),
-      ),
+    runStackedAction: gitManager.runStackedAction,
     resolvePullRequest: routeGitManager(
       "GitWorkflowService.resolvePullRequest",
       gitManager.resolvePullRequest,
@@ -393,4 +430,6 @@ export const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(GitWorkflowService, make);
+export const layer = Layer.effect(GitWorkflowService, make).pipe(
+  Layer.provide(VcsSyncService.layer),
+);

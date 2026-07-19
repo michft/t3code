@@ -8,6 +8,7 @@ import {
   GitRunStackedActionInput,
   GitResolvePullRequestResult,
   VcsStatusLocalResult,
+  VcsPullResult,
 } from "./git.ts";
 
 const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
@@ -18,6 +19,7 @@ const decodeRunStackedActionInput = Schema.decodeUnknownSync(GitRunStackedAction
 const decodeRunStackedActionResult = Schema.decodeUnknownSync(GitRunStackedActionResult);
 const decodeResolvePullRequestResult = Schema.decodeUnknownSync(GitResolvePullRequestResult);
 const decodeStatusLocalResult = Schema.decodeUnknownSync(VcsStatusLocalResult);
+const decodePullResult = Schema.decodeUnknownSync(VcsPullResult);
 
 describe("VcsCreateWorktreeInput", () => {
   it("accepts omitted newRefName for existing-refName worktrees", () => {
@@ -96,6 +98,36 @@ describe("GitRunStackedActionInput", () => {
 
     expect(parsed.actionId).toBe("action-1");
     expect(parsed.action).toBe("create_pr");
+  });
+
+  it("accepts an explicit jj publish bookmark", () => {
+    const parsed = decodeRunStackedActionInput({
+      actionId: "action-jj-publish",
+      cwd: "/repo",
+      action: "push",
+      publishRef: {
+        kind: "bookmark",
+        name: "feature/phase-6",
+        target: { commitId: "published-commit", changeId: "published-change" },
+      },
+    });
+
+    expect(parsed.publishRef?.name).toBe("feature/phase-6");
+  });
+});
+
+describe("VcsPullResult", () => {
+  it("preserves structured jj fetch recovery state", () => {
+    const parsed = decodePullResult({
+      status: "fetched_needs_rebase",
+      refName: "main",
+      upstreamRef: "main@origin",
+      workspaceRevision: { commitId: "workspace-commit", changeId: "workspace-change" },
+      conflicts: [],
+    });
+
+    expect(parsed.status).toBe("fetched_needs_rebase");
+    expect(parsed.workspaceRevision?.changeId).toBe("workspace-change");
   });
 });
 

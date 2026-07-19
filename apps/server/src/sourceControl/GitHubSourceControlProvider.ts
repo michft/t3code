@@ -7,6 +7,7 @@ import {
   type ChangeRequest,
   type ChangeRequestState,
 } from "@t3tools/contracts";
+import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@t3tools/shared/git";
 
 import * as GitHubCli from "./GitHubCli.ts";
 import { findAuthenticatedGitHubAccount, parseGitHubAuthStatus } from "./gitHubAuthStatus.ts";
@@ -97,13 +98,26 @@ export const discovery = {
 export const make = Effect.gen(function* () {
   const github = yield* GitHubCli.GitHubCli;
 
+  const contextRepository = (
+    context: SourceControlProvider.SourceControlProviderContext | undefined,
+  ): string | undefined =>
+    parseGitHubRepositoryNameWithOwnerFromRemoteUrl(context?.remoteUrl ?? null) ?? undefined;
+  const contextRepositoryInput = (
+    context: SourceControlProvider.SourceControlProviderContext | undefined,
+  ): { readonly repository?: string } => {
+    const repository = contextRepository(context);
+    return repository ? { repository } : {};
+  };
+
   const listChangeRequests: SourceControlProvider.SourceControlProvider["Service"]["listChangeRequests"] =
     (input) => {
+      const repository = contextRepository(input.context);
       if (input.state === "open") {
         return github
           .listOpenPullRequests({
             cwd: input.cwd,
             headSelector: input.headSelector,
+            ...(repository ? { repository } : {}),
             ...(input.limit !== undefined ? { limit: input.limit } : {}),
           })
           .pipe(
@@ -140,6 +154,7 @@ export const make = Effect.gen(function* () {
             String(input.limit ?? 20),
             "--json",
             "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+            ...(repository ? ["--repo", repository] : []),
           ],
         })
         .pipe(
@@ -188,23 +203,29 @@ export const make = Effect.gen(function* () {
     kind: "github",
     listChangeRequests,
     getChangeRequest: (input) =>
-      github.getPullRequest(input).pipe(
-        Effect.map(toChangeRequest),
-        Effect.mapError(
-          (error) =>
-            new SourceControlProviderError({
-              provider: "github",
-              operation: "getChangeRequest",
-              command: error.command,
-              cwd: input.cwd,
-              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
-                input.reference,
-              ),
-              detail: error.detail,
-              cause: error,
-            }),
+      github
+        .getPullRequest({
+          cwd: input.cwd,
+          reference: input.reference,
+          ...contextRepositoryInput(input.context),
+        })
+        .pipe(
+          Effect.map(toChangeRequest),
+          Effect.mapError(
+            (error) =>
+              new SourceControlProviderError({
+                provider: "github",
+                operation: "getChangeRequest",
+                command: error.command,
+                cwd: input.cwd,
+                reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                  input.reference,
+                ),
+                detail: error.detail,
+                cause: error,
+              }),
+          ),
         ),
-      ),
     createChangeRequest: (input) =>
       github
         .createPullRequest({
@@ -213,6 +234,7 @@ export const make = Effect.gen(function* () {
           headSelector: input.headSelector,
           title: input.title,
           bodyFile: input.bodyFile,
+          ...contextRepositoryInput(input.context),
         })
         .pipe(
           Effect.mapError(
@@ -265,19 +287,24 @@ export const make = Effect.gen(function* () {
         ),
       ),
     getDefaultBranch: (input) =>
-      github.getDefaultBranch(input).pipe(
-        Effect.mapError(
-          (error) =>
-            new SourceControlProviderError({
-              provider: "github",
-              operation: "getDefaultBranch",
-              command: error.command,
-              cwd: input.cwd,
-              detail: error.detail,
-              cause: error,
-            }),
+      github
+        .getDefaultBranch({
+          cwd: input.cwd,
+          ...contextRepositoryInput(input.context),
+        })
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new SourceControlProviderError({
+                provider: "github",
+                operation: "getDefaultBranch",
+                command: error.command,
+                cwd: input.cwd,
+                detail: error.detail,
+                cause: error,
+              }),
+          ),
         ),
-      ),
     checkoutChangeRequest: (input) =>
       github.checkoutPullRequest(input).pipe(
         Effect.mapError(
