@@ -42,6 +42,7 @@ const TestJjProcessLayer = Layer.effect(
 
 const TestJjDriverLayer = Layer.effect(VcsDriver.VcsDriver, JjVcsDriver.make).pipe(
   Layer.provide(TestJjProcessLayer),
+  Layer.provide(VcsProcess.layer),
 );
 
 const RegistryLayer = Layer.effect(

@@ -12,6 +12,7 @@ import * as JjProcess from "./JjProcess.ts";
 import * as JjVcsDriver from "./JjVcsDriver.ts";
 import * as VcsProjectConfig from "./VcsProjectConfig.ts";
 import * as VcsDriver from "./VcsDriver.ts";
+import * as VcsProcess from "./VcsProcess.ts";
 
 const DETECTION_CACHE_CAPACITY = 2_048;
 const DETECTION_CACHE_TTL = Duration.seconds(2);
@@ -163,4 +164,5 @@ export const make = Effect.gen(function* () {
 export const layer = Layer.effect(VcsDriverRegistry, make).pipe(
   Layer.provide(VcsProjectConfig.layer),
   Layer.provide(JjProcess.layer),
+  Layer.provide(VcsProcess.layer),
 );
