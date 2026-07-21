@@ -74,6 +74,30 @@ export function buildPlanImplementationPrompt(planMarkdown: string): string {
   return `PLEASE IMPLEMENT THIS PLAN:\n${planMarkdown.trim()}`;
 }
 
+export function buildPlanRefinementPrompt(): string {
+  return "Please continue grilling and refining this plan. Ask the next unresolved question.";
+}
+
+export function resolvePlanApprovalSubmission(input: {
+  decision: "approve" | "refine";
+  planMarkdown: string;
+}): {
+  text: string;
+  interactionMode: "default" | "plan";
+} {
+  if (input.decision === "refine") {
+    return {
+      text: buildPlanRefinementPrompt(),
+      interactionMode: "plan",
+    };
+  }
+
+  return {
+    text: buildPlanImplementationPrompt(input.planMarkdown),
+    interactionMode: "default",
+  };
+}
+
 export function resolvePlanFollowUpSubmission(input: { draftText: string; planMarkdown: string }): {
   text: string;
   interactionMode: "default" | "plan";
@@ -86,10 +110,10 @@ export function resolvePlanFollowUpSubmission(input: { draftText: string; planMa
     };
   }
 
-  return {
-    text: buildPlanImplementationPrompt(input.planMarkdown),
-    interactionMode: "default",
-  };
+  return resolvePlanApprovalSubmission({
+    decision: "approve",
+    planMarkdown: input.planMarkdown,
+  });
 }
 
 export function buildPlanImplementationThreadTitle(planMarkdown: string): string {

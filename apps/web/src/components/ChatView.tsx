@@ -98,6 +98,7 @@ import { useUiStateStore } from "../uiStateStore";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
+  resolvePlanApprovalSubmission,
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
 import {
@@ -4583,6 +4584,49 @@ function ChatViewContent(props: ChatViewProps) {
     setActivePendingUserInputQuestionIndex,
   ]);
 
+  const onSubmitActivePendingUserInputQuickAnswer = useCallback(
+    (questionId: string, answer: string) => {
+      if (!activePendingUserInput || !activePendingProgress) {
+        return;
+      }
+
+      const nextDraftAnswers = {
+        ...activePendingDraftAnswers,
+        [questionId]: setPendingUserInputCustomAnswer(
+          activePendingDraftAnswers[questionId],
+          answer,
+        ),
+      };
+      setPendingUserInputAnswersByRequestId((existing) => ({
+        ...existing,
+        [activePendingUserInput.requestId]: nextDraftAnswers,
+      }));
+      promptRef.current = "";
+      composerRef.current?.resetCursorState({ cursor: 0 });
+
+      if (activePendingProgress.isLastQuestion) {
+        const answers = buildPendingUserInputAnswers(
+          activePendingUserInput.questions,
+          nextDraftAnswers,
+        );
+        if (answers) {
+          void onRespondToUserInput(activePendingUserInput.requestId, answers);
+        }
+        return;
+      }
+
+      setActivePendingUserInputQuestionIndex(activePendingProgress.questionIndex + 1);
+    },
+    [
+      activePendingDraftAnswers,
+      activePendingProgress,
+      activePendingUserInput,
+      composerRef,
+      onRespondToUserInput,
+      setActivePendingUserInputQuestionIndex,
+    ],
+  );
+
   const onPreviousActivePendingUserInputQuestion = useCallback(() => {
     if (!activePendingProgress) {
       return;
@@ -4757,6 +4801,18 @@ function ChatViewContent(props: ChatViewProps) {
       composerRef,
     ],
   );
+
+  const onContinuePlanRefinement = useCallback(() => {
+    if (!activeProposedPlan) {
+      return;
+    }
+    void onSubmitPlanFollowUp(
+      resolvePlanApprovalSubmission({
+        decision: "refine",
+        planMarkdown: activeProposedPlan.planMarkdown,
+      }),
+    );
+  }, [activeProposedPlan, onSubmitPlanFollowUp]);
 
   const onImplementPlanInNewThread = useCallback(async () => {
     if (
@@ -5416,9 +5472,13 @@ function ChatViewContent(props: ChatViewProps) {
                         composerElementContextsRef={composerElementContextsRef}
                         onSend={onSend}
                         onInterrupt={onInterrupt}
+                        onContinuePlanRefinement={onContinuePlanRefinement}
                         onImplementPlanInNewThread={onImplementPlanInNewThread}
                         onRespondToApproval={onRespondToApproval}
                         onSelectActivePendingUserInputOption={onSelectActivePendingUserInputOption}
+                        onSubmitActivePendingUserInputQuickAnswer={
+                          onSubmitActivePendingUserInputQuickAnswer
+                        }
                         onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
                         onPreviousActivePendingUserInputQuestion={
                           onPreviousActivePendingUserInputQuestion

@@ -1,6 +1,8 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatPendingPrimaryActionLabel } from "./ComposerPrimaryActions";
+import { ComposerPrimaryActions, formatPendingPrimaryActionLabel } from "./ComposerPrimaryActions";
 
 describe("formatPendingPrimaryActionLabel", () => {
   it("returns 'Submitting...' while responding", () => {
@@ -89,5 +91,32 @@ describe("formatPendingPrimaryActionLabel", () => {
         questionIndex: 5,
       }),
     ).toBe("Submit answers");
+  });
+});
+
+describe("ComposerPrimaryActions plan approval", () => {
+  it("renders accessible thumbs actions for a ready plan", () => {
+    const markup = renderToStaticMarkup(
+      createElement(ComposerPrimaryActions, {
+        compact: false,
+        pendingAction: null,
+        isRunning: false,
+        showPlanFollowUpPrompt: true,
+        promptHasText: false,
+        isSendBusy: false,
+        isConnecting: false,
+        isEnvironmentUnavailable: false,
+        isPreparingWorktree: false,
+        hasSendableContent: false,
+        onPreviousPendingQuestion: () => undefined,
+        onInterrupt: () => undefined,
+        onContinuePlanRefinement: () => undefined,
+        onImplementPlanInNewThread: () => undefined,
+      }),
+    );
+
+    expect(markup).toContain('aria-label="Continue grilling and refining plan"');
+    expect(markup).toContain('aria-label="Approve and implement plan"');
+    expect(markup).toContain("Implement");
   });
 });

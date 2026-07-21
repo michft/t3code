@@ -5,6 +5,18 @@ export interface PendingUserInputDraftAnswer {
   customAnswer?: string;
 }
 
+export type PendingUserInputQuickAction = "retry" | "more-detail" | "less-detail";
+
+const QUICK_ANSWER_BY_ACTION: Record<PendingUserInputQuickAction, string> = {
+  retry: "I don't like any of these options. Ask this question again with different options.",
+  "more-detail": "Ask this question again with more detail.",
+  "less-detail": "Ask this question again with less detail.",
+};
+
+export function buildPendingUserInputQuickAnswer(action: PendingUserInputQuickAction): string {
+  return QUICK_ANSWER_BY_ACTION[action];
+}
+
 export interface PendingUserInputProgress {
   questionIndex: number;
   activeQuestion: UserInputQuestion | null;
