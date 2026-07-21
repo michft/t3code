@@ -51,6 +51,7 @@ import type { GitManagerServiceError } from "@t3tools/contracts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsChangeService from "../vcs/VcsChangeService.ts";
 import * as VcsSyncService from "../vcs/VcsSyncService.ts";
+import * as VcsReviewService from "../vcs/VcsReviewService.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
 
@@ -528,6 +529,7 @@ export const make = Effect.gen(function* () {
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const vcsChangeService = yield* VcsChangeService.VcsChangeService;
   const vcsSyncService = yield* VcsSyncService.VcsSyncService;
+  const vcsReviewService = yield* VcsReviewService.VcsReviewService;
   const crypto = yield* Crypto.Crypto;
 
   const sourceControlProvider = (cwd: string) => sourceControlProviders.resolve({ cwd });
@@ -1495,6 +1497,77 @@ export const make = Effect.gen(function* () {
         reference: normalizedReference,
       });
       const pullRequest = toResolvedPullRequest(pullRequestSummary);
+      const driverKind = yield* vcsChangeService.detectKind(input.cwd).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitManagerError({
+              operation: "preparePullRequestThread",
+              cwd: input.cwd,
+              detail: cause.message,
+              cause,
+            }),
+        ),
+      );
+
+      if (driverKind === "jj") {
+        if (input.mode !== "local" && !input.threadId) {
+          return yield* new GitManagerError({
+            operation: "preparePullRequestThread",
+            cwd: input.cwd,
+            detail: "A thread id is required when preparing a pull request worktree.",
+          });
+        }
+        const remoteInfo = toPullRequestHeadRemoteInfo(pullRequestSummary);
+        const headRepository = resolveHeadRepositoryNameWithOwner({
+          ...pullRequest,
+          ...remoteInfo,
+        });
+        let remoteUrl: string | undefined;
+        let remoteName: string | undefined;
+        if (remoteInfo.isCrossRepository && headRepository) {
+          const cloneUrls = yield* (yield* sourceControlProvider(input.cwd)).getRepositoryCloneUrls(
+            {
+              cwd: input.cwd,
+              repository: headRepository,
+            },
+          );
+          const originRemoteUrl = yield* gitCore.readConfigValue(input.cwd, "remote.origin.url");
+          remoteUrl = shouldPreferSshRemote(originRemoteUrl) ? cloneUrls.sshUrl : cloneUrls.url;
+          remoteName =
+            remoteInfo.headRepositoryOwnerLogin?.trim() ||
+            headRepository.split("/")[0]?.trim() ||
+            undefined;
+        }
+        const prepared = yield* vcsReviewService
+          .prepareReview({
+            cwd: input.cwd,
+            changeRequestNumber: pullRequest.number,
+            headRefName: pullRequest.headBranch,
+            mode: input.mode,
+            ...(input.threadId ? { threadId: input.threadId } : {}),
+            ...(remoteName ? { remoteName } : {}),
+            ...(remoteUrl ? { remoteUrl } : {}),
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new GitManagerError({
+                  operation: "preparePullRequestThread",
+                  cwd: input.cwd,
+                  detail: cause.message,
+                  cause,
+                }),
+            ),
+          );
+        if (prepared.workspacePath) {
+          yield* maybeRunSetupScript(prepared.workspacePath);
+        }
+        return {
+          pullRequest,
+          branch: prepared.bookmarkName,
+          worktreePath: prepared.workspacePath,
+        };
+      }
 
       if (input.mode === "local") {
         yield* (yield* sourceControlProvider(input.cwd)).checkoutChangeRequest({

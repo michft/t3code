@@ -101,7 +101,7 @@ export const make = Effect.gen(function* () {
         detail: "Jujutsu change finalization requires a jj repository.",
       });
     }
-    return handle.driver;
+    return { driver: handle.driver, kind: handle.kind };
   });
 
   const readRevision = Effect.fn("VcsChangeService.readRevision")(function* (
@@ -291,7 +291,13 @@ export const make = Effect.gen(function* () {
     "VcsChangeService.prepareMessageContext",
   )(
     function* (input) {
-      const driver = yield* resolveJjDriver(input.cwd);
+      yield* Effect.annotateCurrentSpan({
+        "vcs.kind": "unknown",
+        "vcs.workflow": "change",
+        "vcs.operation": "prepare-message-context",
+      });
+      const { driver, kind } = yield* resolveJjDriver(input.cwd);
+      yield* Effect.annotateCurrentSpan({ "vcs.kind": kind });
       const selected = yield* snapshotAndSelect({
         driver,
         cwd: input.cwd,
@@ -335,6 +341,11 @@ export const make = Effect.gen(function* () {
     "VcsChangeService.finalizeChange",
   )(
     function* (input) {
+      yield* Effect.annotateCurrentSpan({
+        "vcs.kind": "unknown",
+        "vcs.workflow": "change",
+        "vcs.operation": "finalize",
+      });
       const message = input.message.trim();
       if (message.length === 0) {
         return yield* changeError({
@@ -361,7 +372,8 @@ export const make = Effect.gen(function* () {
         });
       }
 
-      const driver = yield* resolveJjDriver(input.cwd);
+      const { driver, kind } = yield* resolveJjDriver(input.cwd);
+      yield* Effect.annotateCurrentSpan({ "vcs.kind": kind });
       const selected = yield* snapshotAndSelect({
         driver,
         cwd: input.cwd,

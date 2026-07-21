@@ -7,7 +7,7 @@ import * as Path from "effect/Path";
 import type * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { VcsProcessExitError, type VcsError } from "@t3tools/contracts";
+import { CheckpointRef, VcsProcessExitError, type VcsError } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as ServerConfig from "../config.ts";
 import { parseTurnDiffFilesFromUnifiedDiff } from "../checkpointing/Diffs.ts";
@@ -55,6 +55,11 @@ const mockedJjDriverLayer = (run: JjProcess.JjProcess["Service"]["run"]) =>
       Layer.mock(JjProcess.JjProcess)({
         ensureSupportedVersion: () => Effect.succeed("0.42.0"),
         run,
+      }),
+    ),
+    Layer.provide(
+      Layer.mock(VcsProcess.VcsProcess)({
+        run: () => Effect.die("unexpected Git checkpoint process"),
       }),
     ),
     Layer.provideMerge(NodeServices.layer),
@@ -557,4 +562,67 @@ it.effect("reads tracked remote bookmarks without inventing a current bookmark",
       assert.isFalse(refs.refs.some((ref) => ref.current));
     }).pipe(Effect.provide(JjContractLayer));
   }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("captures, diffs, restores, and deletes Jujutsu checkpoints", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const driver = yield* VcsDriver.VcsDriver;
+    const checkpoints = driver.checkpoints;
+    assert.isDefined(checkpoints);
+    if (!checkpoints) return;
+    const repository = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-jj-checkpoint-" });
+    yield* driver.initRepository({ cwd: repository, kind: "jj" });
+    const file = path.join(repository, "checkpoint.txt");
+    const firstRef = CheckpointRef.make("refs/t3code/checkpoints/jj-test/0");
+    const secondRef = CheckpointRef.make("refs/t3code/checkpoints/jj-test/1");
+
+    yield* fileSystem.writeFileString(file, "first\n");
+    yield* driver.execute({
+      operation: "JjVcsDriver.checkpointTest.describeFirst",
+      cwd: repository,
+      args: ["describe", "--message", "First checkpoint"],
+    });
+    yield* checkpoints.captureCheckpoint({ cwd: repository, checkpointRef: firstRef });
+
+    yield* fileSystem.writeFileString(file, "second\n");
+    yield* driver.execute({
+      operation: "JjVcsDriver.checkpointTest.describeSecond",
+      cwd: repository,
+      args: ["describe", "--message", "Second checkpoint"],
+    });
+    yield* checkpoints.captureCheckpoint({ cwd: repository, checkpointRef: secondRef });
+
+    assert.isTrue(
+      yield* checkpoints.hasCheckpointRef({ cwd: repository, checkpointRef: firstRef }),
+    );
+    const diff = yield* checkpoints.diffCheckpoints({
+      cwd: repository,
+      fromCheckpointRef: firstRef,
+      toCheckpointRef: secondRef,
+      ignoreWhitespace: false,
+    });
+    assert.include(diff, "-first");
+    assert.include(diff, "+second");
+
+    assert.isTrue(
+      yield* checkpoints.restoreCheckpoint({ cwd: repository, checkpointRef: firstRef }),
+    );
+    assert.equal(yield* fileSystem.readFileString(file), "first\n");
+    const description = yield* driver.execute({
+      operation: "JjVcsDriver.checkpointTest.readDescription",
+      cwd: repository,
+      args: ["log", "--no-graph", "--revisions", "@", "--template", "description"],
+    });
+    assert.equal(description.stdout, "First checkpoint\n");
+
+    yield* checkpoints.deleteCheckpointRefs({
+      cwd: repository,
+      checkpointRefs: [firstRef, secondRef],
+    });
+    assert.isFalse(
+      yield* checkpoints.hasCheckpointRef({ cwd: repository, checkpointRef: firstRef }),
+    );
+  }).pipe(Effect.provide(JjContractLayer.pipe(Layer.provideMerge(NodeServices.layer)))),
 );

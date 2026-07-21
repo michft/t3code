@@ -7,13 +7,16 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import type { ThreadId } from "@t3tools/contracts";
 
+import * as ServerConfig from "../config.ts";
 import * as JjVcsDriver from "./JjVcsDriver.ts";
 import * as JjProcess from "./JjProcess.ts";
 import * as VcsChangeService from "./VcsChangeService.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsDriverRegistry from "./VcsDriverRegistry.ts";
 import * as VcsProcess from "./VcsProcess.ts";
+import * as VcsReviewService from "./VcsReviewService.ts";
 import { VcsSyncService, layer } from "./VcsSyncService.ts";
 
 const TestJjProcessLayer = Layer.effect(
@@ -39,6 +42,7 @@ const TestJjProcessLayer = Layer.effect(
 
 const TestJjDriverLayer = Layer.effect(VcsDriver.VcsDriver, JjVcsDriver.make).pipe(
   Layer.provide(TestJjProcessLayer),
+  Layer.provide(VcsProcess.layer),
 );
 
 const RegistryLayer = Layer.effect(
@@ -69,8 +73,12 @@ const RegistryLayer = Layer.effect(
   }),
 ).pipe(Layer.provide(TestJjDriverLayer));
 
-const TestLayer = Layer.merge(
+const TestLayer = Layer.mergeAll(
   layer.pipe(Layer.provide(RegistryLayer)),
+  VcsReviewService.layer.pipe(
+    Layer.provide(RegistryLayer),
+    Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-jj-sync-test-" })),
+  ),
   VcsChangeService.layer.pipe(Layer.provide(RegistryLayer)),
 ).pipe(Layer.provideMerge(TestJjDriverLayer), Layer.provideMerge(NodeServices.layer));
 
@@ -230,6 +238,100 @@ it.layer(TestLayer)("VcsSyncService", (it) => {
         ],
       });
       assert.equal(dirtyAfter.stdout, dirtyBefore.stdout);
+    }),
+  );
+
+  it.effect("prepares idempotent local and isolated review workspaces", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const driver = yield* VcsDriver.VcsDriver;
+      const changes = yield* VcsChangeService.VcsChangeService;
+      const sync = yield* VcsSyncService;
+      const reviews = yield* VcsReviewService.VcsReviewService;
+      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-jj-phase7-review-" });
+      const source = path.join(root, "source");
+      const review = path.join(root, "review");
+      const remote = path.join(root, "remote.git");
+      yield* fileSystem.makeDirectory(source);
+      git(["init", "--bare", "--initial-branch=main", remote]);
+      yield* driver.initRepository({ cwd: source, kind: "jj" });
+      yield* driver.addRemote({ cwd: source, name: "origin", url: remote });
+      yield* fileSystem.writeFileString(path.join(source, "review.txt"), "review\n");
+      const finalized = yield* changes.finalizeChange({
+        cwd: source,
+        message: "Review target",
+        createPublishRef: "feature/review",
+      });
+      assert.equal(finalized.status, "created");
+      if (finalized.status !== "created") {
+        throw new Error("Expected a finalized review change.");
+      }
+      assert.isDefined(finalized.publishRef);
+      yield* sync.publish({ cwd: source, publishRef: finalized.publishRef });
+      yield* driver.cloneRepository({ kind: "jj", source: remote, destination: review });
+
+      const local = yield* reviews.prepareReview({
+        cwd: review,
+        changeRequestNumber: 42,
+        headRefName: "feature/review",
+        mode: "local",
+      });
+      assert.equal(local.bookmarkName, "t3code-review-42");
+      assert.isNull(local.workspacePath);
+      const firstCurrent = yield* driver.execute({
+        operation: "VcsSyncService.test.reviewCurrent",
+        cwd: review,
+        args: ["log", "--no-graph", "--revisions", "@", "--template", "commit_id"],
+      });
+      const localParent = yield* driver.execute({
+        operation: "VcsSyncService.test.reviewParent",
+        cwd: review,
+        args: ["log", "--no-graph", "--revisions", "@-", "--template", "commit_id"],
+      });
+      assert.equal(localParent.stdout, finalized.finalizedRevision.commitId);
+
+      yield* reviews.prepareReview({
+        cwd: review,
+        changeRequestNumber: 42,
+        headRefName: "feature/review",
+        mode: "local",
+      });
+      const repeatedCurrent = yield* driver.execute({
+        operation: "VcsSyncService.test.reviewRepeatedCurrent",
+        cwd: review,
+        args: ["log", "--no-graph", "--revisions", "@", "--template", "commit_id"],
+      });
+      assert.equal(repeatedCurrent.stdout, firstCurrent.stdout);
+
+      const isolated = yield* reviews.prepareReview({
+        cwd: review,
+        changeRequestNumber: 42,
+        headRefName: "feature/review",
+        mode: "worktree",
+        threadId: "thread-phase-7-review" as ThreadId,
+      });
+      assert.isNotNull(isolated.workspacePath);
+      assert.isTrue(yield* fileSystem.exists(isolated.workspacePath as string));
+      const isolatedParent = yield* driver.execute({
+        operation: "VcsSyncService.test.reviewWorkspaceParent",
+        cwd: isolated.workspacePath as string,
+        args: ["log", "--no-graph", "--revisions", "@-", "--template", "commit_id"],
+      });
+      assert.equal(isolatedParent.stdout, finalized.finalizedRevision.commitId);
+
+      const repeatedIsolated = yield* reviews.prepareReview({
+        cwd: review,
+        changeRequestNumber: 42,
+        headRefName: "feature/review",
+        mode: "worktree",
+        threadId: "thread-phase-7-review" as ThreadId,
+      });
+      assert.equal(repeatedIsolated.workspacePath, isolated.workspacePath);
+      assert.equal(
+        git(["--git-dir", remote, "rev-parse", "refs/heads/feature/review"]),
+        finalized.finalizedRevision.commitId,
+      );
     }),
   );
 });

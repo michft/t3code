@@ -6,6 +6,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 
 import {
   VcsProcessExitError,
@@ -30,13 +31,16 @@ import {
 import { parseTurnDiffFilesFromUnifiedDiff } from "../checkpointing/Diffs.ts";
 import * as JjProcess from "./JjProcess.ts";
 import * as VcsDriver from "./VcsDriver.ts";
+import * as VcsProcess from "./VcsProcess.ts";
 
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const REMOTES_MAX_OUTPUT_BYTES = 256 * 1024;
 const STATUS_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
+const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
 const FILE_TEMPLATE = 'json(path) ++ "\\n"';
 const COUNT_TEMPLATE = 'commit_id ++ "\\n"';
+const encodeCheckpointMetadata = Schema.encodeEffect(Schema.UnknownFromJsonString);
 
 function dataContractError(operation: string, cwd: string, detail: string) {
   return new VcsProcessExitError({
@@ -144,6 +148,7 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const jj = yield* JjProcess.JjProcess;
+  const vcsProcess = yield* VcsProcess.VcsProcess;
 
   const capabilities = {
     kind: "jj" as const,
@@ -836,9 +841,226 @@ export const make = Effect.gen(function* () {
     });
   });
 
+  const runCheckpointGit = Effect.fn("JjVcsDriver.checkpoints.runGit")(function* (input: {
+    readonly operation: string;
+    readonly cwd: string;
+    readonly args: ReadonlyArray<string>;
+    readonly stdin?: string;
+    readonly allowNonZeroExit?: boolean;
+    readonly maxOutputBytes?: number;
+  }) {
+    return yield* vcsProcess.run({
+      operation: input.operation,
+      command: "git",
+      cwd: input.cwd,
+      args: input.args,
+      ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
+      ...(input.allowNonZeroExit !== undefined ? { allowNonZeroExit: input.allowNonZeroExit } : {}),
+      ...(input.maxOutputBytes !== undefined ? { maxOutputBytes: input.maxOutputBytes } : {}),
+    });
+  });
+
+  const checkpointMetadataRef = (cwd: string, checkpointRef: string) =>
+    crypto.digest("SHA-256", new TextEncoder().encode(checkpointRef)).pipe(
+      Effect.map(Encoding.encodeHex),
+      Effect.map((digest) => `refs/t3code/checkpoint-metadata/${digest}`),
+      Effect.mapError(() =>
+        dataContractError(
+          "JjVcsDriver.checkpoints.metadataRef",
+          cwd,
+          "Failed to hash checkpoint metadata ref.",
+        ),
+      ),
+    );
+
+  const resolveCheckpointCommit = Effect.fn("JjVcsDriver.checkpoints.resolveCommit")(function* (
+    cwd: string,
+    checkpointRef: string,
+  ) {
+    const result = yield* runCheckpointGit({
+      operation: "JjVcsDriver.checkpoints.resolveCommit",
+      cwd,
+      args: ["rev-parse", "--verify", "--quiet", `${checkpointRef}^{commit}`],
+      allowNonZeroExit: true,
+    });
+    if (result.exitCode !== 0) return null;
+    const commitId = result.stdout.trim();
+    return commitId.length > 0 ? commitId : null;
+  });
+
+  const checkpoints: VcsDriver.VcsCheckpointOps = {
+    captureCheckpoint: Effect.fn("JjVcsDriver.checkpoints.captureCheckpoint")(function* (input) {
+      yield* snapshot(input.cwd, "JjVcsDriver.checkpoints.captureCheckpoint.snapshot");
+      const revision = yield* readRevision(input.cwd);
+      const operationResult = yield* jj.run({
+        operation: "JjVcsDriver.checkpoints.captureCheckpoint.operation",
+        cwd: input.cwd,
+        repository: input.cwd,
+        args: ["operation", "log", "--no-graph", "--limit", "1", "--template", 'id ++ "\\n"'],
+        timeoutMs: 10_000,
+        maxOutputBytes: 256 * 1024,
+      });
+      const operationId = operationResult.stdout.trim();
+      if (operationResult.stdoutTruncated || operationId.length === 0) {
+        return yield* dataContractError(
+          "JjVcsDriver.checkpoints.captureCheckpoint",
+          input.cwd,
+          "jj returned invalid operation metadata.",
+        );
+      }
+      const metadata = yield* encodeCheckpointMetadata({
+        version: 1,
+        checkpointRef: input.checkpointRef,
+        operationId,
+        revision: {
+          commitId: revision.commitId,
+          changeId: revision.changeId,
+          parents: revision.parents,
+          description: revision.description,
+        },
+        workingCopies: revision.workingCopies,
+      }).pipe(
+        Effect.mapError(() =>
+          dataContractError(
+            "JjVcsDriver.checkpoints.captureCheckpoint",
+            input.cwd,
+            "Failed to encode checkpoint metadata.",
+          ),
+        ),
+      );
+      const blob = yield* runCheckpointGit({
+        operation: "JjVcsDriver.checkpoints.captureCheckpoint.hashMetadata",
+        cwd: input.cwd,
+        args: ["hash-object", "-w", "--stdin"],
+        stdin: metadata,
+      });
+      const blobId = blob.stdout.trim();
+      if (blobId.length === 0) {
+        return yield* dataContractError(
+          "JjVcsDriver.checkpoints.captureCheckpoint",
+          input.cwd,
+          "git returned an empty checkpoint metadata object id.",
+        );
+      }
+      const metadataRef = yield* checkpointMetadataRef(input.cwd, input.checkpointRef);
+      yield* runCheckpointGit({
+        operation: "JjVcsDriver.checkpoints.captureCheckpoint.updateRefs",
+        cwd: input.cwd,
+        args: ["update-ref", "--stdin"],
+        stdin: [
+          "start",
+          `update ${input.checkpointRef} ${revision.commitId}`,
+          `update ${metadataRef} ${blobId}`,
+          "prepare",
+          "commit",
+          "",
+        ].join("\n"),
+      });
+    }),
+
+    hasCheckpointRef: (input) =>
+      resolveCheckpointCommit(input.cwd, input.checkpointRef).pipe(
+        Effect.map((commitId) => commitId !== null),
+      ),
+
+    restoreCheckpoint: Effect.fn("JjVcsDriver.checkpoints.restoreCheckpoint")(function* (input) {
+      let commitId = yield* resolveCheckpointCommit(input.cwd, input.checkpointRef);
+      if (!commitId && input.fallbackToHead === true) {
+        commitId = (yield* readRevision(input.cwd)).commitId;
+      }
+      if (!commitId) return false;
+
+      const checkpointRevision = yield* readRevision(input.cwd, quoteJjSymbol(commitId));
+      yield* jj.run({
+        operation: "JjVcsDriver.checkpoints.restoreCheckpoint.content",
+        cwd: input.cwd,
+        repository: input.cwd,
+        args: ["restore", "--from", quoteJjSymbol(commitId), "--into", "@"],
+        timeoutMs: 60_000,
+        maxOutputBytes: 1_000_000,
+      });
+      yield* jj.run({
+        operation: "JjVcsDriver.checkpoints.restoreCheckpoint.description",
+        cwd: input.cwd,
+        repository: input.cwd,
+        args: ["describe", "--stdin", "@"],
+        stdin: checkpointRevision.description,
+        timeoutMs: 20_000,
+        maxOutputBytes: 256 * 1024,
+      });
+      return true;
+    }),
+
+    diffCheckpoints: Effect.fn("JjVcsDriver.checkpoints.diffCheckpoints")(function* (input) {
+      let fromCommit = yield* resolveCheckpointCommit(input.cwd, input.fromCheckpointRef);
+      if (!fromCommit && input.fallbackFromToHead === true) {
+        fromCommit = (yield* readRevision(input.cwd)).commitId;
+      }
+      const toCommit = yield* resolveCheckpointCommit(input.cwd, input.toCheckpointRef);
+      if (!fromCommit || !toCommit) {
+        return yield* dataContractError(
+          "JjVcsDriver.checkpoints.diffCheckpoints",
+          input.cwd,
+          "Checkpoint ref is unavailable for diff operation.",
+        );
+      }
+      const result = yield* jj.run({
+        operation: "JjVcsDriver.checkpoints.diffCheckpoints",
+        cwd: input.cwd,
+        repository: input.cwd,
+        args: [
+          "diff",
+          "--git",
+          ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
+          "--from",
+          quoteJjSymbol(fromCommit),
+          "--to",
+          quoteJjSymbol(toCommit),
+        ],
+        timeoutMs: 60_000,
+        maxOutputBytes: CHECKPOINT_DIFF_MAX_OUTPUT_BYTES,
+        appendTruncationMarker: false,
+      });
+      if (result.stdoutTruncated) {
+        return yield* dataContractError(
+          "JjVcsDriver.checkpoints.diffCheckpoints",
+          input.cwd,
+          "jj returned truncated checkpoint diff output.",
+        );
+      }
+      return result.stdout;
+    }),
+
+    deleteCheckpointRefs: Effect.fn("JjVcsDriver.checkpoints.deleteCheckpointRefs")(
+      function* (input) {
+        yield* Effect.forEach(
+          input.checkpointRefs,
+          (checkpointRef) =>
+            Effect.gen(function* () {
+              const metadataRef = yield* checkpointMetadataRef(input.cwd, checkpointRef);
+              yield* runCheckpointGit({
+                operation: "JjVcsDriver.checkpoints.deleteCheckpointRefs",
+                cwd: input.cwd,
+                args: ["update-ref", "-d", checkpointRef],
+                allowNonZeroExit: true,
+              });
+              yield* runCheckpointGit({
+                operation: "JjVcsDriver.checkpoints.deleteCheckpointMetadata",
+                cwd: input.cwd,
+                args: ["update-ref", "-d", metadataRef],
+                allowNonZeroExit: true,
+              });
+            }),
+          { discard: true },
+        );
+      },
+    ),
+  };
+
   return VcsDriver.VcsDriver.of({
     capabilities,
     execute,
+    checkpoints,
     detectRepository,
     isInsideWorkTree,
     listWorkspaceFiles,
@@ -856,4 +1078,7 @@ export const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(VcsDriver.VcsDriver, make).pipe(Layer.provide(JjProcess.layer));
+export const layer = Layer.effect(VcsDriver.VcsDriver, make).pipe(
+  Layer.provide(JjProcess.layer),
+  Layer.provide(VcsProcess.layer),
+);

@@ -27,6 +27,7 @@ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsChangeService from "../vcs/VcsChangeService.ts";
 import * as VcsSyncService from "../vcs/VcsSyncService.ts";
+import * as VcsReviewService from "../vcs/VcsReviewService.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubSourceControlProvider from "../sourceControl/GitHubSourceControlProvider.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
@@ -645,6 +646,7 @@ function makeManager(input?: {
   setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
   vcsChangeService?: VcsChangeService.VcsChangeService["Service"];
   vcsSyncService?: VcsSyncService.VcsSyncService["Service"];
+  vcsReviewService?: VcsReviewService.VcsReviewService["Service"];
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
@@ -690,6 +692,12 @@ function makeManager(input?: {
         fetch: () => Effect.die("unexpected jj fetch"),
         publish: () => Effect.die("unexpected jj publish"),
         readRangeContext: () => Effect.die("unexpected jj range context"),
+      },
+    ),
+    Layer.succeed(
+      VcsReviewService.VcsReviewService,
+      input?.vcsReviewService ?? {
+        prepareReview: () => Effect.die("unexpected jj review preparation"),
       },
     ),
     Layer.succeed(
@@ -2789,6 +2797,87 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       const branch = (yield* runGit(repoDir, ["branch", "--show-current"])).stdout.trim();
       expect(branch).toBe("feature/pr-local");
       expect(ghCalls).toContain("pr checkout 64 --force");
+    }),
+  );
+
+  it.effect("routes Jujutsu pull request preparation through the review service", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const reviewCalls: Array<
+        Parameters<VcsReviewService.VcsReviewService["Service"]["prepareReview"]>[0]
+      > = [];
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          pullRequest: {
+            number: 67,
+            title: "JJ review",
+            url: "https://github.com/michft/t3code/pull/67",
+            baseRefName: "main",
+            headRefName: "feature/jj-review",
+            state: "open",
+          },
+        },
+        vcsChangeService: {
+          detectKind: () => Effect.succeed("jj" as const),
+          prepareMessageContext: () => Effect.die("unexpected jj change context"),
+          finalizeChange: () => Effect.die("unexpected jj change finalization"),
+        },
+        vcsReviewService: {
+          prepareReview: (input) => {
+            reviewCalls.push(input);
+            return Effect.succeed({
+              bookmarkName: "t3code-review-67",
+              remoteName: "origin",
+              workspacePath: null,
+            });
+          },
+        },
+      });
+
+      const result = yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "#67",
+        mode: "local",
+      });
+
+      expect(result.branch).toBe("t3code-review-67");
+      expect(result.worktreePath).toBeNull();
+      expect(reviewCalls).toEqual([
+        {
+          cwd: repoDir,
+          changeRequestNumber: 67,
+          headRefName: "feature/jj-review",
+          mode: "local",
+        },
+      ]);
+      expect(ghCalls).not.toContain("pr checkout 67 --force");
+      const threadId = asThreadId("thread-jj-worktree-review");
+
+      yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "#67",
+        mode: "worktree",
+        threadId,
+      });
+
+      expect(reviewCalls[1]).toEqual({
+        cwd: repoDir,
+        changeRequestNumber: 67,
+        headRefName: "feature/jj-review",
+        mode: "worktree",
+        threadId,
+      });
+
+      const error = yield* Effect.flip(
+        preparePullRequestThread(manager, {
+          cwd: repoDir,
+          reference: "#67",
+          mode: "worktree",
+        }),
+      );
+      expect(error.message).toContain("thread id is required");
+      expect(reviewCalls).toHaveLength(2);
     }),
   );
 
