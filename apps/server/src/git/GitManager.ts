@@ -1522,6 +1522,13 @@ export const make = Effect.gen(function* () {
           ...pullRequest,
           ...remoteInfo,
         });
+        if (remoteInfo.isCrossRepository && !headRepository) {
+          return yield* new GitManagerError({
+            operation: "preparePullRequestThread",
+            cwd: input.cwd,
+            detail: "The cross-repository pull request head repository is unavailable.",
+          });
+        }
         let remoteUrl: string | undefined;
         let remoteName: string | undefined;
         if (remoteInfo.isCrossRepository && headRepository) {

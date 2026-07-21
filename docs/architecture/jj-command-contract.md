@@ -184,9 +184,22 @@ interface JjCheckpointMetadata {
     readonly parents: readonly string[];
     readonly description: string;
   };
+  /** Raw jj diagnostics only. This field never proves restore ownership. */
   readonly workingCopies: readonly unknown[];
 }
+
+interface JjCheckpointRestoreOwnership {
+  readonly repositoryRoot: string;
+  readonly workspaceRoot: string;
+  readonly workspaceName: string;
+}
 ```
+
+`JjCheckpointRestoreOwnership` is supplied by the thread/workspace read model, not decoded from
+`workingCopies`. Before restore, the caller must resolve the repository at `workspaceRoot`, require
+its root and current jj workspace name to match all three ownership fields, and confirm that
+`jj workspace list` in `repositoryRoot` contains that workspace. Missing or mismatched ownership is
+a recoverable refusal. Arbitrary values in raw `workingCopies` can never satisfy this precondition.
 
 Capture sequence:
 
@@ -198,10 +211,11 @@ Capture sequence:
 
 Restore sequence:
 
-1. Resolve the recorded commit ID after a fresh process start.
-2. Run `jj restore --from <commitId> --into @` in the recorded workspace.
-3. Restore the recorded description with `jj describe -m <description>`.
-4. Verify the resulting revision and files.
+1. Resolve and validate `JjCheckpointRestoreOwnership` through the external workspace lookup.
+2. Resolve the recorded commit ID after a fresh process start.
+3. Run `jj restore --from <commitId> --into @` in the validated workspace.
+4. Restore the recorded description with `jj describe -m <description>`.
+5. Verify the resulting revision and files.
 
 Do not use `jj op restore`. It changes repository-wide operation state and can affect unrelated workspaces.
 

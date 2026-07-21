@@ -365,12 +365,13 @@ export const make = Effect.gen(function* () {
     "VcsWorkspaceService.createThreadWorkspace",
   )(
     function* (input) {
-      const handle = yield* registry.resolve({ cwd: input.cwd });
       yield* Effect.annotateCurrentSpan({
-        "vcs.kind": handle.kind,
+        "vcs.kind": "unknown",
         "vcs.workflow": "workspace",
         "vcs.operation": "create",
       });
+      const handle = yield* registry.resolve({ cwd: input.cwd });
+      yield* Effect.annotateCurrentSpan({ "vcs.kind": handle.kind });
       if (handle.kind === "jj") {
         return yield* createJjWorkspace(input, handle.driver, handle.repository.rootPath);
       }

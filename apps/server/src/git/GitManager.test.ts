@@ -2881,6 +2881,53 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("rejects a cross-repository Jujutsu review without a head repository", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const reviewCalls: Array<
+        Parameters<VcsReviewService.VcsReviewService["Service"]["prepareReview"]>[0]
+      > = [];
+      const { manager } = yield* makeManager({
+        ghScenario: {
+          pullRequest: {
+            number: 68,
+            title: "JJ fork review",
+            url: "https://github.com/pingdotgg/t3code/pull/68",
+            baseRefName: "main",
+            headRefName: "feature/jj-fork-review",
+            state: "open",
+            isCrossRepository: true,
+          },
+        },
+        vcsChangeService: {
+          detectKind: () => Effect.succeed("jj" as const),
+          prepareMessageContext: () => Effect.die("unexpected jj change context"),
+          finalizeChange: () => Effect.die("unexpected jj change finalization"),
+        },
+        vcsReviewService: {
+          prepareReview: (input) => {
+            reviewCalls.push(input);
+            return Effect.succeed({
+              bookmarkName: "t3code-review-68",
+              remoteName: "origin",
+              workspacePath: null,
+            });
+          },
+        },
+      });
+
+      const error = yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "#68",
+        mode: "local",
+      }).pipe(Effect.flip);
+
+      expect(error.message).toContain("head repository");
+      expect(reviewCalls).toEqual([]);
+    }),
+  );
+
   it.effect(
     "restores same-repository upstream tracking after local PR checkout without a remote ref",
     () =>

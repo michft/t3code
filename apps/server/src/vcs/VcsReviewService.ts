@@ -175,6 +175,33 @@ export const make = Effect.gen(function* () {
     });
   });
 
+  const readCurrentWorkspaceName = Effect.fn("VcsReviewService.readCurrentWorkspaceName")(
+    function* (driver: VcsDriver.VcsDriver["Service"], cwd: string) {
+      const result = yield* driver.execute({
+        operation: "VcsReviewService.readCurrentWorkspaceName",
+        cwd,
+        args: [
+          "workspace",
+          "list",
+          "--template",
+          'if(target.current_working_copy(), name ++ "\\n")',
+        ],
+        timeoutMs: 20_000,
+        maxOutputBytes: METADATA_MAX_OUTPUT_BYTES,
+        appendTruncationMarker: false,
+      });
+      const names = result.stdout.split("\n").filter((name) => name.length > 0);
+      if (result.stdoutTruncated || names.length !== 1) {
+        return yield* reviewError({
+          operation: "read-current-workspace",
+          detail: "jj returned invalid current workspace ownership metadata.",
+          recoverable: true,
+        });
+      }
+      return names[0] as string;
+    },
+  );
+
   const resolveRemoteName = Effect.fn("VcsReviewService.resolveRemoteName")(function* (
     driver: VcsDriver.VcsDriver["Service"],
     cwd: string,
@@ -201,6 +228,12 @@ export const make = Effect.gen(function* () {
         "vcs.workflow": "sync",
         "vcs.operation": "prepare-review",
       });
+      if (input.mode !== "local" && !input.threadId) {
+        return yield* reviewError({
+          operation: "prepare-review",
+          detail: "A thread id is required for an isolated Jujutsu workspace.",
+        });
+      }
       const { driver, repositoryRoot } = yield* resolveJjDriver(input.cwd);
       const bookmarkName = `t3code-review-${input.changeRequestNumber}`;
       let remoteName = input.remoteName?.trim() ?? "";
@@ -264,14 +297,9 @@ export const make = Effect.gen(function* () {
         return { bookmarkName, remoteName, workspacePath: null };
       }
 
-      if (!input.threadId) {
-        return yield* reviewError({
-          operation: "prepare-review",
-          detail: "A thread id is required for an isolated Jujutsu workspace.",
-        });
-      }
+      const threadId = input.threadId as ThreadId;
       const workspaceName = `t3code-${NodeCrypto.createHash("sha256")
-        .update(input.threadId, "utf8")
+        .update(threadId, "utf8")
         .digest("hex")
         .slice(0, 20)}`;
       const workspacePath = path.join(worktreesDir, path.basename(repositoryRoot), workspaceName);
@@ -281,6 +309,23 @@ export const make = Effect.gen(function* () {
           return yield* reviewError({
             operation: "prepare-review",
             detail: `Refusing to replace invalid workspace path '${workspacePath}'.`,
+            recoverable: true,
+          });
+        }
+        const [currentWorkspaceName, workspaces] = yield* Effect.all([
+          readCurrentWorkspaceName(driver, workspacePath),
+          readWorkspaces(driver, input.cwd),
+        ]);
+        const ownedWorkspace = workspaces.find((workspace) => workspace.name === workspaceName);
+        if (
+          currentWorkspaceName !== workspaceName ||
+          !ownedWorkspace ||
+          ownedWorkspace.target.commit_id !== existing.value.commitId ||
+          ownedWorkspace.target.change_id !== existing.value.changeId
+        ) {
+          return yield* reviewError({
+            operation: "prepare-review",
+            detail: `Refusing to reuse workspace path '${workspacePath}' because its repository or thread ownership metadata does not match.`,
             recoverable: true,
           });
         }

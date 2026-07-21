@@ -390,24 +390,28 @@ pure/non-colocated jj support has a separate proposal. The initial mutation gate
 graduated because workspace, provider, and durable-checkpoint criteria now pass; no permanent gate
 is retained in the completed implementation.
 
+Deployment and support should treat jj mutation workflows as graduated. There is no experimental
+setting to enable, retain, or remove; operators should use the supported-version and recovery guidance
+and monitor the safe workflow telemetry described below.
+
 Ship progressively.
 
 Tasks:
 
-- gate jj mutation workflows behind an experimental setting initially;
-- allow read-only status/diff before mutation workflows are enabled;
+- initially gate jj mutation workflows during rollout (completed; the gate has graduated and was removed);
+- ship read-only status/diff before enabling mutation workflows (completed rollout stage);
 - record operation duration, cancellation, failure class, VCS kind, and workflow name without recording paths, messages, patches, or remote credentials;
 - add recovery logs containing repository-safe IDs and suggested commands;
 - publish setup, conversion, supported-version, limitations, and recovery documentation;
 - document colocation implications for users and agents that also run Git;
-- remove the experimental gate only after checkpoint, provider, and concurrent-workspace criteria pass;
+- confirm checkpoint, provider, and concurrent-workspace criteria before graduating and removing the experimental gate (completed);
 - plan pure/non-colocated jj support as a separate proposal.
 
 Exit criteria:
 
 - a user can complete the full acceptance matrix below using jj without a Git-only escape hatch;
 - support docs identify every intentional semantic difference;
-- failure telemetry shows no unclassified jj command failures in the beta cohort.
+- post-graduation failure telemetry shows no unclassified jj command failures in the supported cohort.
 
 ## Workflow acceptance matrix
 
