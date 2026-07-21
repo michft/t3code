@@ -15,6 +15,8 @@ T3 Code is a minimal web GUI for coding agents (currently Codex, Claude, Cursor,
 
 ### Run without installing
 
+This command runs the upstream pingdotgg release, not the michft fork:
+
 ```bash
 npx t3@latest
 ```
@@ -23,7 +25,9 @@ Tip: Use `npx t3@latest --help` for the full CLI reference.
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
+Download the unsigned community fork nightly from [michft/t3code Releases](https://github.com/michft/t3code/releases). See the [fork nightly install guide](./docs/getting-started/fork-nightly.md) for platform instructions and limitations.
+
+The package-registry commands below install the upstream pingdotgg release, not this fork:
 
 #### Windows (`winget`)
 
@@ -87,4 +91,4 @@ vp i
 
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
 
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+Report fork issues at [michft/t3code issues](https://github.com/michft/t3code/issues). The [Discord](https://discord.gg/jn4EGJjrvv) is operated for the upstream project.

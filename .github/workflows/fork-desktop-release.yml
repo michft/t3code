@@ -1,0 +1,430 @@
+name: Fork Desktop Release
+
+on:
+  push:
+    tags:
+      - "fork-v*-nightly.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional nightly version (for example 0.0.29-nightly.20260722.1)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_NIGHTLY_TAG: v0.0.29-nightly.20260721.864
+  UPSTREAM_NIGHTLY_SHA: c0bb2373450231e3931937d2f703e35ce906ed85
+
+jobs:
+  preflight:
+    name: Check and resolve release
+    if: github.repository == 'michft/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      name: ${{ steps.release.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.0.0
+        with:
+          node-version-file: package.json
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Jujutsu
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # jj-cli
+        with:
+          tool: jj-cli
+
+      - id: release
+        name: Resolve fork nightly version
+        shell: bash
+        env:
+          NIGHTLY_DATE: ${{ github.run_started_at }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#fork-v}"
+          elif [[ -n "$REQUESTED_VERSION" ]]; then
+            version="${REQUESTED_VERSION#fork-v}"
+            version="${version#v}"
+          else
+            nightly_date="${NIGHTLY_DATE%%T*}"
+            nightly_date="${nightly_date//-/}"
+            metadata="$(node scripts/resolve-nightly-release.ts \
+              --date "$nightly_date" \
+              --run-number "$GITHUB_RUN_NUMBER" \
+              --sha "$GITHUB_SHA")"
+            version="$(printf '%s\n' "$metadata" | sed -n 's/^version=//p')"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+$ ]]; then
+            echo "Invalid fork nightly version: $version" >&2
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$UPSTREAM_NIGHTLY_SHA" "$GITHUB_SHA"; then
+            echo "$GITHUB_SHA does not contain $UPSTREAM_NIGHTLY_TAG ($UPSTREAM_NIGHTLY_SHA)." >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=fork-v$version" >> "$GITHUB_OUTPUT"
+          echo "name=T3 Code Fork Nightly $version" >> "$GITHUB_OUTPUT"
+
+      - name: Check
+        run: pnpm exec vp check
+
+      - name: Typecheck
+        run: pnpm exec vp run typecheck
+
+      - name: Test
+        run: pnpm exec vp run test
+
+      - name: Release smoke test
+        run: pnpm exec vp run release:smoke
+
+  build_wsl_node_pty:
+    name: Build WSL node-pty (linux-x64)
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.0.0
+        with:
+          node-version-file: package.json
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Linux node-pty for WSL
+        shell: bash
+        run: |
+          set -euo pipefail
+          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['$GITHUB_WORKSPACE/apps/server'] }))")"
+          pty_dir="$(dirname "$pty_pkg")"
+          (cd "$pty_dir" && pnpm dlx node-gyp@12.3.0 rebuild)
+          mkdir -p wsl-prebuild
+          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
+          file wsl-prebuild/pty.node
+
+      - name: Upload WSL prebuild
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wsl-node-pty-x64
+          path: wsl-prebuild/pty.node
+          if-no-files-found: error
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: [preflight, build_wsl_node_pty]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS arm64
+            runner: macos-14
+            platform: mac
+            target: dmg
+            arch: arm64
+          - label: macOS x64
+            runner: macos-14
+            platform: mac
+            target: dmg
+            arch: x64
+          - label: Linux x64
+            runner: ubuntu-24.04
+            platform: linux
+            target: AppImage
+            arch: x64
+          - label: Windows x64
+            runner: windows-2022
+            platform: win
+            target: nsis
+            arch: x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.0.0
+        with:
+          node-version-file: package.json
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Align package versions
+        run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
+
+      - name: Download WSL node-pty prebuild
+        if: matrix.platform == 'win'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wsl-node-pty-x64
+          path: wsl-prebuild
+
+      - name: Install Spectre-mitigated MSVC libraries
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -products * -latest -property installationPath
+          $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $proc = Start-Process -FilePath $setupExe `
+            -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", `
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64.Spectre", "--quiet", "--norestart" `
+            -Wait -PassThru -NoNewWindow
+          if ($null -eq $proc -or $proc.ExitCode -ne 0) {
+            $code = if ($null -ne $proc) { $proc.ExitCode } else { 1 }
+            Write-Error "Visual Studio Installer failed with exit code $code"
+            exit $code
+          }
+
+      - name: Install ImageMagick
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
+
+      - name: Build unsigned desktop artifact
+        shell: bash
+        env:
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: michft/t3code
+        run: |
+          set -euo pipefail
+          args=(
+            --platform "${{ matrix.platform }}"
+            --target "${{ matrix.target }}"
+            --arch "${{ matrix.arch }}"
+            --build-version "${{ needs.preflight.outputs.version }}"
+            --verbose
+          )
+
+          if [[ "${{ matrix.platform }}" == "win" ]]; then
+            args+=(--wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node")
+          fi
+
+          pnpm exec vp run dist:desktop:artifact "${args[@]}"
+
+      - name: Collect release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-publish
+          shopt -s nullglob
+
+          for pattern in \
+            "release/*.dmg" \
+            "release/*.zip" \
+            "release/*.AppImage" \
+            "release/*.exe" \
+            "release/*.blockmap" \
+            "release/nightly*.yml"; do
+            for file in $pattern; do
+              cp "$file" release-publish/
+            done
+          done
+
+          if [[ "${{ matrix.platform }}" == "mac" && "${{ matrix.arch }}" == "x64" ]]; then
+            for manifest in release-publish/*-mac.yml; do
+              mv "$manifest" "${manifest%.yml}-x64.yml"
+            done
+          fi
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-publish/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: [preflight, build]
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.0.0
+        with:
+          node-version-file: package.json
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install release script dependencies
+        run: pnpm install --frozen-lockfile --filter=@t3tools/scripts...
+
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Merge macOS updater manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found_mac_manifest=false
+          for x64_manifest in release-assets/*-mac-x64.yml; do
+            found_mac_manifest=true
+            arm64_manifest="${x64_manifest%-x64.yml}.yml"
+            if [[ ! -f "$arm64_manifest" ]]; then
+              echo "Missing arm64 manifest for $x64_manifest" >&2
+              exit 1
+            fi
+            node scripts/merge-update-manifests.ts --platform mac "$arm64_manifest" "$x64_manifest"
+            rm "$x64_manifest"
+          done
+
+          if [[ "$found_mac_manifest" != true ]]; then
+            echo "No x64 macOS updater manifest found." >&2
+            exit 1
+          fi
+
+      - name: Write release information and checksums
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          require_count() {
+            expected="$1"
+            pattern="$2"
+            mapfile -t matches < <(compgen -G "$pattern" || true)
+            if [[ "${#matches[@]}" -ne "$expected" ]]; then
+              echo "Expected $expected asset(s) matching $pattern; found ${#matches[@]}." >&2
+              exit 1
+            fi
+          }
+
+          require_count 2 'release-assets/*.dmg'
+          require_count 2 'release-assets/*.zip'
+          require_count 1 'release-assets/*.AppImage'
+          require_count 1 'release-assets/*.exe'
+          require_count 5 'release-assets/*.blockmap'
+
+          for manifest in nightly-mac.yml nightly-linux.yml nightly.yml; do
+            if [[ ! -f "release-assets/$manifest" ]]; then
+              echo "Missing updater manifest: $manifest" >&2
+              exit 1
+            fi
+          done
+
+          jq -n \
+            --arg version "$RELEASE_VERSION" \
+            --arg tag "$RELEASE_TAG" \
+            --arg forkRepository "$GITHUB_REPOSITORY" \
+            --arg forkCommit "$GITHUB_SHA" \
+            --arg upstreamTag "$UPSTREAM_NIGHTLY_TAG" \
+            --arg upstreamCommit "$UPSTREAM_NIGHTLY_SHA" \
+            --arg workflowRun "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{version: $version, tag: $tag, forkRepository: $forkRepository, forkCommit: $forkCommit, upstreamNightly: {tag: $upstreamTag, commit: $upstreamCommit}, workflowRun: $workflowRun, signed: false}' \
+            > release-assets/release-info.json
+
+          (cd release-assets && sha256sum -- * > SHA256SUMS.txt)
+
+          cat > release-notes.md <<EOF
+          Community fork nightly built from upstream **${UPSTREAM_NIGHTLY_TAG}** plus michft fork changes.
+
+          - Fork commit: \`${GITHUB_SHA}\`
+          - Upstream commit: \`${UPSTREAM_NIGHTLY_SHA}\`
+          - Build run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - Checksums and provenance: \`SHA256SUMS.txt\`, \`release-info.json\`
+
+          These installers are unsigned. macOS Gatekeeper and Windows SmartScreen may warn. T3 Connect and the managed relay are not included. Local provider workflows remain available.
+
+          Install instructions: https://github.com/michft/t3code/blob/${GITHUB_SHA}/docs/getting-started/fork-nightly.md
+          Report fork issues: https://github.com/michft/t3code/issues
+          EOF
+
+      - name: Create or update prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_NAME: ${{ needs.preflight.outputs.name }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
+
+          if tag_commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha 2>/dev/null)"; then
+            if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+              echo "$RELEASE_TAG already targets $tag_commit, not $GITHUB_SHA." >&2
+              exit 1
+            fi
+          fi
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_NAME" \
+              --notes-file release-notes.md \
+              --prerelease
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_NAME" \
+              --notes-file release-notes.md \
+              --prerelease
+          fi
+
+          gh release upload "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber \
+            "${assets[@]}"

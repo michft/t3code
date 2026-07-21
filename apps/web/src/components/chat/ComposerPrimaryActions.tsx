@@ -1,5 +1,5 @@
 import { memo, type PointerEventHandler } from "react";
-import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronLeftIcon, ThumbsDownIcon, ThumbsUpIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -27,6 +27,7 @@ interface ComposerPrimaryActionsProps {
   preserveComposerFocusOnPointerDown?: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
+  onContinuePlanRefinement: () => void;
   onImplementPlanInNewThread: () => void;
 }
 
@@ -66,6 +67,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   preserveComposerFocusOnPointerDown = false,
   onPreviousPendingQuestion,
   onInterrupt,
+  onContinuePlanRefinement,
   onImplementPlanInNewThread,
 }: ComposerPrimaryActionsProps) {
   const pointerFocusProps = preserveComposerFocusOnPointerDown
@@ -155,40 +157,59 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     }
 
     return (
-      <div data-chat-composer-implement-actions="true" className="flex items-center justify-end">
+      <div
+        data-chat-composer-implement-actions="true"
+        className="flex items-center justify-end gap-1.5"
+      >
         <Button
-          type="submit"
-          size="sm"
-          className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
+          type="button"
+          size="icon-sm"
+          variant="outline"
+          className="size-9 rounded-full sm:size-8"
+          aria-label="Continue grilling and refining plan"
           {...pointerFocusProps}
           disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
+          onClick={onContinuePlanRefinement}
         >
-          {isConnecting || isSendBusy ? "Sending..." : "Implement"}
+          <ThumbsDownIcon className="size-3.5" />
         </Button>
-        <Menu>
-          <MenuTrigger
-            render={
-              <Button
-                size="sm"
-                variant="default"
-                className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
-                aria-label="Implementation actions"
-                {...pointerFocusProps}
-                disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
-              />
-            }
+        <div className="flex items-center">
+          <Button
+            type="submit"
+            size="sm"
+            className="h-9 gap-1.5 rounded-l-full rounded-r-none px-4 sm:h-8"
+            aria-label="Approve and implement plan"
+            {...pointerFocusProps}
+            disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
           >
-            <ChevronDownIcon className="size-3.5" />
-          </MenuTrigger>
-          <MenuPopup align="end" side="top">
-            <MenuItem
-              disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
-              onClick={() => void onImplementPlanInNewThread()}
+            <ThumbsUpIcon className="size-3.5" />
+            {isConnecting || isSendBusy ? "Sending..." : "Implement"}
+          </Button>
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
+                  aria-label="Implementation actions"
+                  {...pointerFocusProps}
+                  disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
+                />
+              }
             >
-              Implement in a new thread
-            </MenuItem>
-          </MenuPopup>
-        </Menu>
+              <ChevronDownIcon className="size-3.5" />
+            </MenuTrigger>
+            <MenuPopup align="end" side="top">
+              <MenuItem
+                disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
+                onClick={() => void onImplementPlanInNewThread()}
+              >
+                Implement in a new thread
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
+        </div>
       </div>
     );
   }

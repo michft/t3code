@@ -4,8 +4,10 @@ import {
   buildCollapsedProposedPlanPreviewMarkdown,
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
+  buildPlanRefinementPrompt,
   buildProposedPlanMarkdownFilename,
   proposedPlanTitle,
+  resolvePlanApprovalSubmission,
   resolvePlanFollowUpSubmission,
   stripDisplayedPlanMarkdown,
 } from "./proposedPlan";
@@ -25,6 +27,32 @@ describe("buildPlanImplementationPrompt", () => {
     expect(buildPlanImplementationPrompt("## Ship it\n\n- step 1\n")).toBe(
       "PLEASE IMPLEMENT THIS PLAN:\n## Ship it\n\n- step 1",
     );
+  });
+});
+
+describe("resolvePlanApprovalSubmission", () => {
+  it("approves the ready plan in default mode", () => {
+    expect(
+      resolvePlanApprovalSubmission({
+        decision: "approve",
+        planMarkdown: "## Ship it\n\n- step 1\n",
+      }),
+    ).toEqual({
+      text: "PLEASE IMPLEMENT THIS PLAN:\n## Ship it\n\n- step 1",
+      interactionMode: "default",
+    });
+  });
+
+  it("continues grilling in plan mode when the ready plan is rejected", () => {
+    expect(
+      resolvePlanApprovalSubmission({
+        decision: "refine",
+        planMarkdown: "## Ship it\n\n- step 1\n",
+      }),
+    ).toEqual({
+      text: buildPlanRefinementPrompt(),
+      interactionMode: "plan",
+    });
   });
 });
 

@@ -4,3 +4,9 @@
 - `.github/workflows/release.yml` builds macOS (`arm64` and `x64`), Linux (`x64`), and Windows (`x64`) desktop artifacts from a single `v*.*.*` tag and publishes one GitHub release.
 - The release workflow auto-enables signing only when platform credentials are present. macOS passkey builds additionally require `APPLE_TEAM_ID` and the `MACOS_PROVISIONING_PROFILE` secret; Windows uses Azure Trusted Signing. Without the core signing credentials, it still releases unsigned artifacts.
 - See [Release Checklist](./release.md) for the full release/signing setup checklist.
+
+## Fork desktop release CI
+
+The michft fork uses `.github/workflows/fork-desktop-release.yml`. It runs on standard GitHub-hosted Ubuntu, macOS, and Windows runners, and needs no ping.gg production or signing secrets. It builds unsigned desktop installers only; it does not publish npm, deploy the relay, or deploy the hosted web app.
+
+The upstream `.github/workflows/release.yml` is repository-gated to `pingdotgg/t3code`, so its scheduled Blacksmith and production deployment jobs do not run in the fork.

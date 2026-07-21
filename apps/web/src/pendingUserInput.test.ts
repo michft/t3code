@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  buildPendingUserInputQuickAnswer,
   buildPendingUserInputAnswers,
   countAnsweredPendingUserInputQuestions,
   derivePendingUserInputProgress,
@@ -9,6 +10,18 @@ import {
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
 } from "./pendingUserInput";
+
+describe("buildPendingUserInputQuickAnswer", () => {
+  it("builds explicit retry and detail requests", () => {
+    expect(buildPendingUserInputQuickAnswer("retry")).toContain("different options");
+    expect(buildPendingUserInputQuickAnswer("more-detail")).toBe(
+      "Ask this question again with more detail.",
+    );
+    expect(buildPendingUserInputQuickAnswer("less-detail")).toBe(
+      "Ask this question again with less detail.",
+    );
+  });
+});
 
 const singleSelectQuestion = {
   id: "scope",

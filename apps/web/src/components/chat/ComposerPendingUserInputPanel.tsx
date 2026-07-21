@@ -2,11 +2,13 @@ import { type ApprovalRequestId } from "@t3tools/contracts";
 import { memo, useEffect, useEffectEvent, useRef, useState } from "react";
 import { type PendingUserInput } from "../../session-logic";
 import {
+  buildPendingUserInputQuickAnswer,
   derivePendingUserInputProgress,
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, MinusIcon, PlusIcon, ThumbsDownIcon, ThumbsUpIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { Button } from "../ui/button";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -14,6 +16,7 @@ interface PendingUserInputPanelProps {
   answers: Record<string, PendingUserInputDraftAnswer>;
   questionIndex: number;
   onToggleOption: (questionId: string, optionLabel: string) => void;
+  onSubmitQuickAnswer: (questionId: string, answer: string) => void;
   onAdvance: () => void;
 }
 
@@ -23,6 +26,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
   answers,
   questionIndex,
   onToggleOption,
+  onSubmitQuickAnswer,
   onAdvance,
 }: PendingUserInputPanelProps) {
   if (pendingUserInputs.length === 0) return null;
@@ -37,6 +41,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
       answers={answers}
       questionIndex={questionIndex}
       onToggleOption={onToggleOption}
+      onSubmitQuickAnswer={onSubmitQuickAnswer}
       onAdvance={onAdvance}
     />
   );
@@ -48,6 +53,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   answers,
   questionIndex,
   onToggleOption,
+  onSubmitQuickAnswer,
   onAdvance,
 }: {
   prompt: PendingUserInput;
@@ -55,6 +61,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   answers: Record<string, PendingUserInputDraftAnswer>;
   questionIndex: number;
   onToggleOption: (questionId: string, optionLabel: string) => void;
+  onSubmitQuickAnswer: (questionId: string, answer: string) => void;
   onAdvance: () => void;
 }) {
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
@@ -221,6 +228,63 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
             </button>
           );
         })}
+      </div>
+      <div className="mt-3 flex items-center gap-1.5" aria-label="Question quick answers">
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="outline"
+          disabled={isResponding || !activeQuestion.options[0]}
+          onClick={() => {
+            const recommendedOption = activeQuestion.options[0];
+            if (recommendedOption) {
+              onSubmitQuickAnswer(activeQuestion.id, recommendedOption.label);
+            }
+          }}
+          aria-label="Accept recommended answer"
+          title="Accept recommended answer"
+        >
+          <ThumbsUpIcon className="size-3.5" />
+        </Button>
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="outline"
+          disabled={isResponding}
+          onClick={() =>
+            onSubmitQuickAnswer(activeQuestion.id, buildPendingUserInputQuickAnswer("retry"))
+          }
+          aria-label="Try question again with different options"
+          title="Try question again with different options"
+        >
+          <ThumbsDownIcon className="size-3.5" />
+        </Button>
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="outline"
+          disabled={isResponding}
+          onClick={() =>
+            onSubmitQuickAnswer(activeQuestion.id, buildPendingUserInputQuickAnswer("more-detail"))
+          }
+          aria-label="Ask question with more detail"
+          title="Ask question with more detail"
+        >
+          <PlusIcon className="size-3.5" />
+        </Button>
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="outline"
+          disabled={isResponding}
+          onClick={() =>
+            onSubmitQuickAnswer(activeQuestion.id, buildPendingUserInputQuickAnswer("less-detail"))
+          }
+          aria-label="Ask question with less detail"
+          title="Ask question with less detail"
+        >
+          <MinusIcon className="size-3.5" />
+        </Button>
       </div>
     </div>
   );

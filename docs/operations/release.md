@@ -2,6 +2,41 @@
 
 This document covers the unified release workflow for stable and nightly desktop releases.
 
+## Community fork nightly
+
+The michft fork publishes desktop-only prereleases with `.github/workflows/fork-desktop-release.yml`. This workflow is separate from the upstream production release:
+
+- It runs on GitHub-hosted runners and targets macOS arm64/x64, Linux x64, and Windows x64.
+- It produces unsigned installers and updater files.
+- It publishes to `https://github.com/michft/t3code/releases` using the workflow's scoped `GITHUB_TOKEN`.
+- It records the exact upstream nightly tag and commit, fork commit, workflow run, checksums, and unsigned status.
+- It does not publish npm packages, deploy Vercel, deploy the ping.gg relay, or use upstream credentials.
+
+Fork release tags use `fork-vX.Y.Z-nightly.YYYYMMDD.N`. The prefix prevents the upstream release workflow from handling them.
+
+To release a commit already containing the workflow, push a fork tag:
+
+```sh
+jj tag set fork-v0.0.29-nightly.20260722.1 -r <revision>
+git push origin refs/tags/fork-v0.0.29-nightly.20260722.1
+```
+
+`jj git push` does not push tags, so the second command deliberately uses Git after Jujutsu creates and exports the tag.
+
+Alternatively, run **Fork Desktop Release** from GitHub Actions. Leave `version` empty to derive it from the desktop package version, date, and Actions run number. A supplied version must match the nightly format. GitHub exposes manual dispatch only after this workflow exists on the fork's default branch; use the tag trigger for the first pre-merge release.
+
+Before changing the `UPSTREAM_NIGHTLY_TAG` and `UPSTREAM_NIGHTLY_SHA` workflow values, integrate that upstream commit into the release revision. Preflight rejects a build when the recorded upstream commit is not an ancestor.
+
+After completion, verify:
+
+- four platform installers are present;
+- `SHA256SUMS.txt` validates downloaded files;
+- `release-info.json` names the intended upstream and fork commits;
+- the GitHub release is marked prerelease;
+- a clean-machine launch works on each target OS.
+
+User install instructions and unsigned-build warnings are in [Install the michft fork nightly](../getting-started/fork-nightly.md).
+
 ## What the workflow does
 
 - Workflow: `.github/workflows/release.yml`
