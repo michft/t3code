@@ -7,6 +7,8 @@ import {
   GitRunStackedActionResult,
   GitRunStackedActionInput,
   GitResolvePullRequestResult,
+  VcsStatusLocalResult,
+  VcsPullResult,
 } from "./git.ts";
 
 const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
@@ -16,6 +18,8 @@ const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
 const decodeRunStackedActionInput = Schema.decodeUnknownSync(GitRunStackedActionInput);
 const decodeRunStackedActionResult = Schema.decodeUnknownSync(GitRunStackedActionResult);
 const decodeResolvePullRequestResult = Schema.decodeUnknownSync(GitResolvePullRequestResult);
+const decodeStatusLocalResult = Schema.decodeUnknownSync(VcsStatusLocalResult);
+const decodePullResult = Schema.decodeUnknownSync(VcsPullResult);
 
 describe("VcsCreateWorktreeInput", () => {
   it("accepts omitted newRefName for existing-refName worktrees", () => {
@@ -39,6 +43,17 @@ describe("VcsCreateWorktreeInput", () => {
     });
 
     expect(parsed.baseRefName).toBe("origin/main");
+  });
+
+  it("accepts a thread id for VCS-neutral workspace creation", () => {
+    const parsed = decodeCreateWorktreeInput({
+      cwd: "/repo",
+      threadId: "thread-workspace",
+      refName: "main",
+      path: null,
+    });
+
+    expect(parsed.threadId).toBe("thread-workspace");
   });
 });
 
@@ -84,6 +99,36 @@ describe("GitRunStackedActionInput", () => {
     expect(parsed.actionId).toBe("action-1");
     expect(parsed.action).toBe("create_pr");
   });
+
+  it("accepts an explicit jj publish bookmark", () => {
+    const parsed = decodeRunStackedActionInput({
+      actionId: "action-jj-publish",
+      cwd: "/repo",
+      action: "push",
+      publishRef: {
+        kind: "bookmark",
+        name: "feature/phase-6",
+        target: { commitId: "published-commit", changeId: "published-change" },
+      },
+    });
+
+    expect(parsed.publishRef?.name).toBe("feature/phase-6");
+  });
+});
+
+describe("VcsPullResult", () => {
+  it("preserves structured jj fetch recovery state", () => {
+    const parsed = decodePullResult({
+      status: "fetched_needs_rebase",
+      refName: "main",
+      upstreamRef: "main@origin",
+      workspaceRevision: { commitId: "workspace-commit", changeId: "workspace-change" },
+      conflicts: [],
+    });
+
+    expect(parsed.status).toBe("fetched_needs_rebase");
+    expect(parsed.workspaceRevision?.changeId).toBe("workspace-change");
+  });
 });
 
 describe("GitRunStackedActionResult", () => {
@@ -124,5 +169,62 @@ describe("GitRunStackedActionResult", () => {
     if (parsed.toast.cta.kind === "run_action") {
       expect(parsed.toast.cta.action.kind).toBe("create_pr");
     }
+  });
+
+  it("decodes jj finalized and new workspace revisions", () => {
+    const parsed = decodeRunStackedActionResult({
+      action: "commit",
+      branch: { status: "created", name: "feature/jj-change" },
+      commit: {
+        status: "created",
+        commitSha: "finalized-commit",
+        subject: "Finalize jj change",
+        finalizedRevision: { commitId: "finalized-commit", changeId: "finalized-change" },
+        workspaceRevision: { commitId: "workspace-commit", changeId: "workspace-change" },
+        publishRef: {
+          kind: "bookmark",
+          name: "feature/jj-change",
+          target: { commitId: "finalized-commit", changeId: "finalized-change" },
+        },
+      },
+      push: { status: "skipped_not_requested" },
+      pr: { status: "skipped_not_requested" },
+      toast: { title: "Finalized finaliz", cta: { kind: "none" } },
+    });
+
+    expect(parsed.commit.workspaceRevision?.changeId).toBe("workspace-change");
+    expect(parsed.commit.publishRef?.kind).toBe("bookmark");
+  });
+});
+
+describe("VcsStatusLocalResult", () => {
+  const baseStatus = {
+    isRepo: true,
+    hasPrimaryRemote: true,
+    isDefaultRef: true,
+    refName: "main",
+    hasWorkingTreeChanges: false,
+    workingTree: { files: [], insertions: 0, deletions: 0 },
+  };
+
+  it("requires variant-specific conflict details", () => {
+    expect(
+      decodeStatusLocalResult({
+        ...baseStatus,
+        conflicts: [
+          { kind: "content", path: "conflicted.txt" },
+          { kind: "named-ref", refName: "feature" },
+        ],
+      }).conflicts,
+    ).toEqual([
+      { kind: "content", path: "conflicted.txt" },
+      { kind: "named-ref", refName: "feature" },
+    ]);
+    expect(() =>
+      decodeStatusLocalResult({ ...baseStatus, conflicts: [{ kind: "content" }] }),
+    ).toThrow();
+    expect(() =>
+      decodeStatusLocalResult({ ...baseStatus, conflicts: [{ kind: "named-ref" }] }),
+    ).toThrow();
   });
 });

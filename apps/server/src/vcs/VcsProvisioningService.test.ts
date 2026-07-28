@@ -50,10 +50,17 @@ function makeDriver(calls: string[]): VcsDriver.VcsDriver["Service"] {
           expiresAt: Option.none(),
         },
       }),
+    addRemote: () => Effect.void,
+    removeRemote: () => Effect.void,
+    resolveDefaultRemote: () => Effect.succeed(null),
     filterIgnoredPaths: (_cwd, relativePaths) => Effect.succeed(relativePaths),
     initRepository: (input) =>
       Effect.sync(() => {
         calls.push(`${input.kind ?? "default"}:${input.cwd}`);
+      }),
+    cloneRepository: (input) =>
+      Effect.sync(() => {
+        calls.push(`${input.kind ?? "default"}:${input.source}->${input.destination}`);
       }),
   };
 }

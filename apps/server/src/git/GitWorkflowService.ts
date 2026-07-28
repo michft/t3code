@@ -31,6 +31,8 @@ import {
 import * as GitManager from "./GitManager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as VcsSyncService from "../vcs/VcsSyncService.ts";
+import { mergeGitStatusParts } from "@t3tools/shared/git";
 
 export class GitWorkflowService extends Context.Service<
   GitWorkflowService,
@@ -134,6 +136,7 @@ export const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const gitManager = yield* GitManager.GitManager;
+  const vcsSync = yield* VcsSyncService.VcsSyncService;
 
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
     operation: string,
@@ -185,7 +188,7 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  const detectGitRepositoryForStatus = Effect.fn("GitWorkflowService.detectGitRepositoryForStatus")(
+  const detectRepositoryForStatus = Effect.fn("GitWorkflowService.detectRepositoryForStatus")(
     function* (operation: string, cwd: string) {
       const handle = yield* registry.detect({ cwd }).pipe(
         Effect.mapError(
@@ -193,52 +196,77 @@ export const make = Effect.gen(function* () {
             new GitManagerError({
               operation,
               cwd,
-              detail: "Failed to detect a VCS repository for this Git workflow.",
+              detail: "Failed to detect a VCS repository for this status workflow.",
               cause,
             }),
         ),
       );
-      if (!handle) {
-        return false;
-      }
-      if (handle.kind !== "git") {
-        return yield* new GitManagerError({
-          operation,
-          cwd,
-          detail: `The ${operation} workflow currently supports Git repositories only; detected ${handle.kind}. (${cwd})`,
-        });
-      }
-      return true;
+      return handle;
     },
   );
 
-  const detectGitRepositoryForCommand = Effect.fn(
-    "GitWorkflowService.detectGitRepositoryForCommand",
-  )(function* (operation: string, cwd: string) {
-    const handle = yield* registry.detect({ cwd }).pipe(
+  const detectRepositoryForCommand = Effect.fn("GitWorkflowService.detectRepositoryForCommand")(
+    function* (operation: string, cwd: string) {
+      const handle = yield* registry.detect({ cwd }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              operation,
+              command: "vcs-route",
+              cwd,
+              detail: "Failed to detect a VCS repository for this command.",
+              cause,
+            }),
+        ),
+      );
+      return handle;
+    },
+  );
+
+  const runDriverLocalStatus = Effect.fn("GitWorkflowService.runDriverLocalStatus")(function* (
+    operation: string,
+    input: VcsStatusInput,
+    handle: VcsDriverRegistry.VcsDriverHandle,
+  ) {
+    if (!handle.driver.getLocalStatus) {
+      return yield* new GitManagerError({
+        operation,
+        cwd: input.cwd,
+        detail: `The ${handle.kind} VCS driver does not support status reads.`,
+      });
+    }
+    return yield* handle.driver.getLocalStatus(input).pipe(
       Effect.mapError(
         (cause) =>
-          new GitCommandError({
+          new GitManagerError({
             operation,
-            command: "vcs-route",
-            cwd,
-            detail: "Failed to detect a VCS repository for this Git command.",
+            cwd: input.cwd,
+            detail: `Failed to read ${handle.kind} local status.`,
             cause,
           }),
       ),
     );
-    if (!handle) {
-      return false;
+  });
+
+  const runDriverRemoteStatus = Effect.fn("GitWorkflowService.runDriverRemoteStatus")(function* (
+    operation: string,
+    input: VcsStatusInput,
+    handle: VcsDriverRegistry.VcsDriverHandle,
+  ) {
+    if (!handle.driver.getRemoteStatus) {
+      return null;
     }
-    if (handle.kind !== "git") {
-      return yield* new GitCommandError({
-        operation,
-        command: "vcs-route",
-        cwd,
-        detail: `The ${operation} command currently supports Git repositories only; detected ${handle.kind}.`,
-      });
-    }
-    return true;
+    return yield* handle.driver.getRemoteStatus(input).pipe(
+      Effect.mapError(
+        (cause) =>
+          new GitManagerError({
+            operation,
+            cwd: input.cwd,
+            detail: `Failed to read ${handle.kind} remote status.`,
+            cause,
+          }),
+      ),
+    );
   });
 
   const routeGitManager =
@@ -251,36 +279,89 @@ export const make = Effect.gen(function* () {
 
   return GitWorkflowService.of({
     status: (input) =>
-      detectGitRepositoryForStatus("GitWorkflowService.status", input.cwd).pipe(
-        Effect.flatMap((isGitRepository) =>
-          isGitRepository ? gitManager.status(input) : Effect.succeed(nonRepositoryStatus()),
-        ),
+      detectRepositoryForStatus("GitWorkflowService.status", input.cwd).pipe(
+        Effect.flatMap((handle) => {
+          if (!handle) return Effect.succeed(nonRepositoryStatus());
+          if (handle.kind === "git") return gitManager.status(input);
+          return Effect.gen(function* () {
+            const local = yield* runDriverLocalStatus(
+              "GitWorkflowService.status.local",
+              input,
+              handle,
+            );
+            const remote = yield* runDriverRemoteStatus(
+              "GitWorkflowService.status.remote",
+              input,
+              handle,
+            );
+            return mergeGitStatusParts(local, remote);
+          });
+        }),
       ),
     localStatus: (input) =>
-      detectGitRepositoryForStatus("GitWorkflowService.localStatus", input.cwd).pipe(
-        Effect.flatMap((isGitRepository) =>
-          isGitRepository
+      detectRepositoryForStatus("GitWorkflowService.localStatus", input.cwd).pipe(
+        Effect.flatMap((handle) => {
+          if (!handle) return Effect.succeed(nonRepositoryLocalStatus());
+          return handle.kind === "git"
             ? gitManager.localStatus(input)
-            : Effect.succeed(nonRepositoryLocalStatus()),
-        ),
+            : runDriverLocalStatus("GitWorkflowService.localStatus", input, handle);
+        }),
       ),
     remoteStatus: (input, options) =>
-      detectGitRepositoryForStatus("GitWorkflowService.remoteStatus", input.cwd).pipe(
-        Effect.flatMap((isGitRepository) =>
-          isGitRepository ? gitManager.remoteStatus(input, options) : Effect.succeed(null),
-        ),
+      detectRepositoryForStatus("GitWorkflowService.remoteStatus", input.cwd).pipe(
+        Effect.flatMap((handle) => {
+          if (!handle) return Effect.succeed(null);
+          return handle.kind === "git"
+            ? gitManager.remoteStatus(input, options)
+            : runDriverRemoteStatus("GitWorkflowService.remoteStatus", input, handle);
+        }),
       ),
     invalidateLocalStatus: gitManager.invalidateLocalStatus,
     invalidateRemoteStatus: gitManager.invalidateRemoteStatus,
     invalidateStatus: gitManager.invalidateStatus,
     pullCurrentBranch: (cwd) =>
-      ensureGitCommand("GitWorkflowService.pullCurrentBranch", cwd).pipe(
-        Effect.andThen(git.pullCurrentBranch(cwd)),
+      detectRepositoryForCommand("GitWorkflowService.pullCurrentBranch", cwd).pipe(
+        Effect.flatMap((handle) => {
+          if (!handle || handle.kind === "git") return git.pullCurrentBranch(cwd);
+          if (handle.kind !== "jj") {
+            return Effect.fail(
+              new GitCommandError({
+                operation: "GitWorkflowService.pullCurrentBranch",
+                command: "vcs-route",
+                cwd,
+                detail: `Fetch is unavailable for ${handle.kind} repositories.`,
+              }),
+            );
+          }
+          return vcsSync.fetch({ cwd }).pipe(
+            Effect.map((result) => ({
+              status:
+                result.status === "updated"
+                  ? ("pulled" as const)
+                  : result.status === "needs-rebase"
+                    ? ("fetched_needs_rebase" as const)
+                    : result.status === "needs-resolution"
+                      ? ("fetched_needs_resolution" as const)
+                      : ("skipped_up_to_date" as const),
+              refName: result.refName,
+              upstreamRef: result.upstreamRef,
+              workspaceRevision: result.workspaceRevision,
+              conflicts: result.conflicts,
+            })),
+            Effect.mapError(
+              (cause) =>
+                new GitCommandError({
+                  operation: "GitWorkflowService.pullCurrentBranch",
+                  command: "jj",
+                  cwd,
+                  detail: cause.detail,
+                  cause,
+                }),
+            ),
+          );
+        }),
       ),
-    runStackedAction: (input, options) =>
-      ensureGit("GitWorkflowService.runStackedAction", input.cwd).pipe(
-        Effect.andThen(gitManager.runStackedAction(input, options)),
-      ),
+    runStackedAction: gitManager.runStackedAction,
     resolvePullRequest: routeGitManager(
       "GitWorkflowService.resolvePullRequest",
       gitManager.resolvePullRequest,
@@ -290,10 +371,33 @@ export const make = Effect.gen(function* () {
       gitManager.preparePullRequestThread,
     ),
     listRefs: (input) =>
-      detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
-        Effect.flatMap((isGitRepository) =>
-          isGitRepository ? git.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
-        ),
+      detectRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
+        Effect.flatMap((handle) => {
+          if (!handle) return Effect.succeed(nonRepositoryListRefs());
+          if (handle.kind === "git") return git.listRefs(input);
+          if (!handle.driver.listRefs) {
+            return Effect.fail(
+              new GitCommandError({
+                operation: "GitWorkflowService.listRefs",
+                command: "vcs-route",
+                cwd: input.cwd,
+                detail: `The ${handle.kind} VCS driver does not support ref listing.`,
+              }),
+            );
+          }
+          return handle.driver.listRefs(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new GitCommandError({
+                  operation: "GitWorkflowService.listRefs",
+                  command: "vcs-route",
+                  cwd: input.cwd,
+                  detail: `Failed to list ${handle.kind} refs.`,
+                  cause,
+                }),
+            ),
+          );
+        }),
       ),
     createWorktree: (input) =>
       ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(
@@ -326,4 +430,6 @@ export const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(GitWorkflowService, make);
+export const layer = Layer.effect(GitWorkflowService, make).pipe(
+  Layer.provide(VcsSyncService.layer),
+);

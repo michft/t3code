@@ -35,7 +35,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
-const DESKTOP_APP_ID = "com.t3tools.t3code";
+const DEFAULT_DESKTOP_APP_ID = "com.t3tools.t3code";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
@@ -752,7 +752,7 @@ export function resolveMacPasskeySigningConfiguration(
   }
 
   return {
-    appId: DESKTOP_APP_ID,
+    appId: resolveDesktopAppId(env),
     teamId,
     rpDomains: uniqueRpDomains,
     provisioningProfilePath,
@@ -1366,10 +1366,27 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
   return `${trimmed.slice(0, versionSeparator)}/${trimmed.slice(versionSeparator + 1)}`;
 }
 
-export function resolveDesktopProductName(version: string): string {
+export function resolveDesktopProductName(
+  version: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const configuredProductName = env.T3CODE_DESKTOP_PRODUCT_NAME?.trim();
+  if (configuredProductName) return configuredProductName;
   return resolveDesktopUpdateChannel(version) === "nightly"
     ? "T3 Code (Nightly)"
     : (desktopPackageJson.productName ?? "T3 Code");
+}
+
+export function resolveDesktopAppId(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  return env.T3CODE_DESKTOP_APP_ID?.trim() || DEFAULT_DESKTOP_APP_ID;
+}
+
+export function resolveDesktopArtifactPrefix(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  return env.T3CODE_DESKTOP_ARTIFACT_PREFIX?.trim() || "T3-Code";
 }
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -1387,9 +1404,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     | undefined,
 ) {
   const buildConfig: Record<string, unknown> = {
-    appId: DESKTOP_APP_ID,
+    appId: resolveDesktopAppId(),
     productName: resolveDesktopProductName(version),
-    artifactName: "T3-Code-${version}-${arch}.${ext}",
+    artifactName: `${resolveDesktopArtifactPrefix()}-\${version}-\${arch}.\${ext}`,
     directories: {
       buildResources: "apps/desktop/resources",
     },

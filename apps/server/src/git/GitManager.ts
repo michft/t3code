@@ -29,6 +29,7 @@ import {
   VcsStatusResult,
   ModelSelection,
   type SourceControlWritingStyleSettings,
+  type VcsNamedRef,
 } from "@t3tools/contracts";
 import {
   detectSourceControlProviderFromGitRemoteUrl,
@@ -56,6 +57,9 @@ import { extractBranchNameFromRemoteRef } from "./remoteRefs.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsChangeService from "../vcs/VcsChangeService.ts";
+import * as VcsSyncService from "../vcs/VcsSyncService.ts";
+import * as VcsReviewService from "../vcs/VcsReviewService.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import { detectPrTemplate } from "../sourceControl/PrTemplateDetection.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
@@ -580,6 +584,9 @@ export const make = Effect.gen(function* () {
   const textGeneration = yield* TextGeneration.TextGeneration;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+  const vcsChangeService = yield* VcsChangeService.VcsChangeService;
+  const vcsSyncService = yield* VcsSyncService.VcsSyncService;
+  const vcsReviewService = yield* VcsReviewService.VcsReviewService;
   const crypto = yield* Crypto.Crypto;
 
   const sourceControlProvider = (cwd: string) => sourceControlProviders.resolve({ cwd });
@@ -1364,10 +1371,11 @@ export const make = Effect.gen(function* () {
   const resolveBaseRangeRef = Effect.fn("resolveBaseRangeRef")(function* (
     cwd: string,
     baseBranch: string,
+    preferredRemoteName?: string,
   ) {
-    const remoteName = yield* gitCore
-      .resolvePrimaryRemoteName(cwd)
-      .pipe(Effect.orElseSucceed(() => null));
+    const remoteName =
+      preferredRemoteName ??
+      (yield* gitCore.resolvePrimaryRemoteName(cwd).pipe(Effect.orElseSucceed(() => null)));
     if (!remoteName) return baseBranch;
 
     return yield* gitCore
@@ -1749,6 +1757,84 @@ export const make = Effect.gen(function* () {
         reference: normalizedReference,
       });
       const pullRequest = toResolvedPullRequest(pullRequestSummary);
+      const driverKind = yield* vcsChangeService.detectKind(input.cwd).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitManagerError({
+              operation: "preparePullRequestThread",
+              cwd: input.cwd,
+              detail: cause.message,
+              cause,
+            }),
+        ),
+      );
+
+      if (driverKind === "jj") {
+        if (input.mode !== "local" && !input.threadId) {
+          return yield* new GitManagerError({
+            operation: "preparePullRequestThread",
+            cwd: input.cwd,
+            detail: "A thread id is required when preparing a pull request worktree.",
+          });
+        }
+        const remoteInfo = toPullRequestHeadRemoteInfo(pullRequestSummary);
+        const headRepository = resolveHeadRepositoryNameWithOwner({
+          ...pullRequest,
+          ...remoteInfo,
+        });
+        if (remoteInfo.isCrossRepository && !headRepository) {
+          return yield* new GitManagerError({
+            operation: "preparePullRequestThread",
+            cwd: input.cwd,
+            detail: "The cross-repository pull request head repository is unavailable.",
+          });
+        }
+        let remoteUrl: string | undefined;
+        let remoteName: string | undefined;
+        if (remoteInfo.isCrossRepository && headRepository) {
+          const cloneUrls = yield* (yield* sourceControlProvider(input.cwd)).getRepositoryCloneUrls(
+            {
+              cwd: input.cwd,
+              repository: headRepository,
+            },
+          );
+          const originRemoteUrl = yield* gitCore.readConfigValue(input.cwd, "remote.origin.url");
+          remoteUrl = shouldPreferSshRemote(originRemoteUrl) ? cloneUrls.sshUrl : cloneUrls.url;
+          remoteName =
+            remoteInfo.headRepositoryOwnerLogin?.trim() ||
+            headRepository.split("/")[0]?.trim() ||
+            undefined;
+        }
+        const prepared = yield* vcsReviewService
+          .prepareReview({
+            cwd: input.cwd,
+            changeRequestNumber: pullRequest.number,
+            headRefName: pullRequest.headBranch,
+            mode: input.mode,
+            ...(input.threadId ? { threadId: input.threadId } : {}),
+            ...(remoteName ? { remoteName } : {}),
+            ...(remoteUrl ? { remoteUrl } : {}),
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new GitManagerError({
+                  operation: "preparePullRequestThread",
+                  cwd: input.cwd,
+                  detail: cause.message,
+                  cause,
+                }),
+            ),
+          );
+        if (prepared.workspacePath) {
+          yield* maybeRunSetupScript(prepared.workspacePath);
+        }
+        return {
+          pullRequest,
+          branch: prepared.bookmarkName,
+          worktreePath: prepared.workspacePath,
+        };
+      }
 
       if (input.mode === "local") {
         yield* (yield* sourceControlProvider(input.cwd)).checkoutChangeRequest({
@@ -1926,8 +2012,370 @@ export const make = Effect.gen(function* () {
     };
   });
 
+  const runJjStackedAction = Effect.fn("runJjStackedAction")(function* (
+    input: GitRunStackedActionInput,
+    options?: GitRunStackedActionOptions,
+  ) {
+    const progress = yield* createProgressEmitter(input, options);
+    const currentPhase = yield* Ref.make<Option.Option<GitActionProgressPhase>>(Option.none());
+    const mapWorkflowError = (cause: unknown) =>
+      new GitManagerError({
+        operation: "runJjStackedAction",
+        cwd: input.cwd,
+        detail: cause instanceof Error ? cause.message : String(cause),
+        cause,
+      });
+
+    const runJjPrStep = Effect.fn("runJjStackedAction.runPrStep")(function* (
+      modelSelection: ModelSelection,
+      publishRef: VcsNamedRef,
+    ) {
+      if (!publishRef.remoteName || !publishRef.target) {
+        return yield* new GitManagerError({
+          operation: "runJjStackedAction.runPrStep",
+          cwd: input.cwd,
+          detail: "Publish the Jujutsu bookmark before creating a change request.",
+        });
+      }
+      const provider = yield* sourceControlProvider(input.cwd);
+      const terms = getChangeRequestTerminologyForKind(provider.kind);
+      const existing = yield* provider.listChangeRequests({
+        cwd: input.cwd,
+        headSelector: publishRef.name,
+        state: "open",
+        limit: 20,
+      });
+      const open = existing.find((changeRequest) => changeRequest.headRefName === publishRef.name);
+      if (open) {
+        return {
+          status: "opened_existing" as const,
+          url: open.url,
+          number: open.number,
+          baseBranch: open.baseRefName,
+          headBranch: open.headRefName,
+          title: open.title,
+        };
+      }
+
+      const baseBranch = yield* provider
+        .getDefaultBranch({ cwd: input.cwd })
+        .pipe(Effect.map((branch) => branch ?? "main"));
+      const baseRevision = yield* resolveBaseRangeRef(input.cwd, baseBranch, publishRef.remoteName);
+      yield* progress.emit({
+        kind: "phase_started",
+        phase: "pr",
+        label: `Generating ${terms.shortLabel} content...`,
+      });
+      const rangeContext = yield* vcsSyncService
+        .readRangeContext({
+          cwd: input.cwd,
+          baseRevision,
+          targetRevision: publishRef.target.commitId,
+        })
+        .pipe(Effect.mapError(mapWorkflowError));
+      const generated = yield* textGeneration.generatePrContent({
+        cwd: input.cwd,
+        baseBranch,
+        headBranch: publishRef.name,
+        commitSummary: limitContext(rangeContext.commitSummary, 20_000),
+        diffSummary: limitContext(rangeContext.diffSummary, 20_000),
+        diffPatch: limitContext(rangeContext.diffPatch, 60_000),
+        modelSelection,
+      });
+      const bodyFile = path.join(
+        tempDir,
+        `t3code-pr-body-${process.pid}-${yield* randomUUIDv4(input.cwd)}.md`,
+      );
+      yield* fileSystem.writeFileString(bodyFile, generated.body).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitManagerError({
+              operation: "runJjStackedAction.runPrStep",
+              cwd: input.cwd,
+              detail: "Failed to write change-request body temp file.",
+              cause,
+            }),
+        ),
+      );
+      yield* progress.emit({
+        kind: "phase_started",
+        phase: "pr",
+        label: `Creating ${terms.singular}...`,
+      });
+      yield* provider
+        .createChangeRequest({
+          cwd: input.cwd,
+          baseRefName: baseBranch,
+          headSelector: publishRef.name,
+          title: generated.title,
+          bodyFile,
+        })
+        .pipe(Effect.ensuring(fileSystem.remove(bodyFile).pipe(Effect.catch(() => Effect.void))));
+      const created = yield* provider.listChangeRequests({
+        cwd: input.cwd,
+        headSelector: publishRef.name,
+        state: "open",
+        limit: 20,
+      });
+      const found = created.find((changeRequest) => changeRequest.headRefName === publishRef.name);
+      return {
+        status: "created" as const,
+        ...(found
+          ? {
+              url: found.url,
+              number: found.number,
+              baseBranch: found.baseRefName,
+              headBranch: found.headRefName,
+              title: found.title,
+            }
+          : {
+              baseBranch,
+              headBranch: publishRef.name,
+              title: generated.title,
+            }),
+      };
+    });
+
+    const runAction = Effect.fn("runJjStackedAction.runAction")(function* () {
+      const wantsCommit = isCommitAction(input.action);
+      const wantsPush =
+        input.action === "push" ||
+        input.action === "create_pr" ||
+        input.action === "commit_push" ||
+        input.action === "commit_push_pr";
+      const wantsPr = input.action === "create_pr" || input.action === "commit_push_pr";
+      if (input.featureBranch && !wantsCommit) {
+        return yield* new GitManagerError({
+          operation: "runJjStackedAction",
+          cwd: input.cwd,
+          detail: "A new publish bookmark can only be created while finalizing a change.",
+        });
+      }
+      if (wantsPush && !input.featureBranch && !input.publishRef) {
+        return yield* new GitManagerError({
+          operation: "runJjStackedAction",
+          cwd: input.cwd,
+          detail: "Create or select an explicit Jujutsu publish bookmark before publishing.",
+        });
+      }
+
+      const phases: GitActionProgressPhase[] = [
+        ...(wantsCommit ? (["commit"] as const) : []),
+        ...(wantsPush ? (["push"] as const) : []),
+        ...(wantsPr ? (["pr"] as const) : []),
+      ];
+      yield* progress.emit({ kind: "action_started", phases });
+      const modelSelection = yield* serverSettingsService.getSettings.pipe(
+        Effect.map((settings) => settings.textGenerationModelSelection),
+        Effect.mapError(
+          (cause) =>
+            new GitManagerError({
+              operation: "runJjStackedAction",
+              cwd: input.cwd,
+              detail: "Failed to get server settings.",
+              cause,
+            }),
+        ),
+      );
+
+      let commitStep: GitRunStackedActionResult["commit"] = {
+        status: "skipped_not_requested",
+      };
+      let branchStep: GitRunStackedActionResult["branch"] = {
+        status: "skipped_not_requested",
+      };
+      let currentPublishRef = input.publishRef;
+
+      if (wantsCommit) {
+        yield* Ref.set(currentPhase, Option.some("commit"));
+        const context = yield* vcsChangeService
+          .prepareMessageContext({
+            cwd: input.cwd,
+            ...(input.filePaths ? { filePaths: input.filePaths } : {}),
+          })
+          .pipe(Effect.mapError(mapWorkflowError));
+        if (context) {
+          const customCommit = parseCustomCommitMessage(input.commitMessage ?? "");
+          let suggestion: CommitAndBranchSuggestion;
+          if (customCommit) {
+            suggestion = {
+              subject: customCommit.subject,
+              body: customCommit.body,
+              ...(input.featureBranch
+                ? { branch: sanitizeFeatureBranchName(customCommit.subject) }
+                : {}),
+              commitMessage: formatCommitMessage(customCommit.subject, customCommit.body),
+            };
+          } else {
+            yield* progress.emit({
+              kind: "phase_started",
+              phase: "commit",
+              label: "Generating change message...",
+            });
+            const generated = yield* textGeneration
+              .generateCommitMessage({
+                cwd: input.cwd,
+                branch: null,
+                stagedSummary: limitContext(context.summary, 8_000),
+                stagedPatch: limitContext(context.patch, 50_000),
+                ...(input.featureBranch ? { includeBranch: true } : {}),
+                modelSelection,
+              })
+              .pipe(Effect.map((result) => sanitizeCommitMessage(result)));
+            suggestion = {
+              subject: generated.subject,
+              body: generated.body,
+              ...(generated.branch !== undefined ? { branch: generated.branch } : {}),
+              commitMessage: formatCommitMessage(generated.subject, generated.body),
+            };
+          }
+
+          yield* progress.emit({
+            kind: "phase_started",
+            phase: "commit",
+            label: "Finalizing change...",
+          });
+          const preferredPublishRef = input.featureBranch
+            ? (suggestion.branch ?? sanitizeFeatureBranchName(suggestion.subject))
+            : undefined;
+          const publishRefToMove = wantsPush ? currentPublishRef : undefined;
+          const finalized = yield* vcsChangeService
+            .finalizeChange({
+              cwd: input.cwd,
+              message: suggestion.commitMessage,
+              ...(input.filePaths ? { filePaths: input.filePaths } : {}),
+              ...(preferredPublishRef ? { createPublishRef: preferredPublishRef } : {}),
+              ...(publishRefToMove ? { publishRef: publishRefToMove } : {}),
+            })
+            .pipe(Effect.mapError(mapWorkflowError));
+          if (finalized.status === "created") {
+            currentPublishRef = finalized.publishRef ?? currentPublishRef;
+            branchStep = finalized.publishRef
+              ? { status: "created", name: finalized.publishRef.name }
+              : branchStep;
+            commitStep = {
+              status: "created",
+              commitSha: finalized.finalizedRevision.commitId,
+              subject: suggestion.subject,
+              finalizedRevision: finalized.finalizedRevision,
+              workspaceRevision: finalized.workspaceRevision,
+              ...(currentPublishRef ? { publishRef: currentPublishRef } : {}),
+            };
+          } else {
+            commitStep = { status: "skipped_no_changes" };
+          }
+        } else {
+          commitStep = { status: "skipped_no_changes" };
+        }
+      }
+
+      let pushStep: GitRunStackedActionResult["push"] = {
+        status: "skipped_not_requested",
+      };
+      if (wantsPush) {
+        if (!currentPublishRef) {
+          return yield* new GitManagerError({
+            operation: "runJjStackedAction",
+            cwd: input.cwd,
+            detail: "No explicit Jujutsu publish bookmark is available.",
+          });
+        }
+        yield* Ref.set(currentPhase, Option.some("push"));
+        yield* progress.emit({
+          kind: "phase_started",
+          phase: "push",
+          label: `Publishing bookmark ${currentPublishRef.name}...`,
+        });
+        const published = yield* vcsSyncService
+          .publish({ cwd: input.cwd, publishRef: currentPublishRef })
+          .pipe(Effect.mapError(mapWorkflowError));
+        currentPublishRef = published.publishRef;
+        commitStep = { ...commitStep, publishRef: currentPublishRef };
+        pushStep = {
+          status: "pushed",
+          branch: currentPublishRef.name,
+          upstreamBranch: `${published.remoteName}/${currentPublishRef.name}`,
+          setUpstream: true,
+        };
+      }
+
+      let prStep: GitRunStackedActionResult["pr"] = { status: "skipped_not_requested" };
+      if (wantsPr) {
+        if (!currentPublishRef) {
+          return yield* new GitManagerError({
+            operation: "runJjStackedAction",
+            cwd: input.cwd,
+            detail: "No published Jujutsu bookmark is available for a change request.",
+          });
+        }
+        yield* Ref.set(currentPhase, Option.some("pr"));
+        prStep = yield* runJjPrStep(modelSelection, currentPublishRef);
+      }
+
+      const shortCommit = commitStep.commitSha?.slice(0, SHORT_SHA_LENGTH);
+      const title =
+        prStep.status === "created" || prStep.status === "opened_existing"
+          ? `${prStep.status === "created" ? "Created" : "Opened"} change request${prStep.number ? ` #${prStep.number}` : ""}`
+          : pushStep.status === "pushed"
+            ? `Published ${currentPublishRef?.name ?? "bookmark"}`
+            : shortCommit
+              ? `Finalized ${shortCommit}`
+              : "No changes to finalize";
+      const result: GitRunStackedActionResult = {
+        action: input.action,
+        branch: branchStep,
+        commit: commitStep,
+        push: pushStep,
+        pr: prStep,
+        toast: {
+          title,
+          ...(commitStep.status === "created" && pushStep.status !== "pushed"
+            ? {
+                description: currentPublishRef
+                  ? `Prepared bookmark ${currentPublishRef.name}`
+                  : "Created a new working-copy change",
+              }
+            : {}),
+          cta:
+            (prStep.status === "created" || prStep.status === "opened_existing") && prStep.url
+              ? { kind: "open_pr", label: "View change request", url: prStep.url }
+              : { kind: "none" },
+        },
+      };
+      yield* progress.emit({ kind: "action_finished", result });
+      return result;
+    });
+
+    return yield* runAction().pipe(
+      Effect.ensuring(invalidateStatus(input.cwd)),
+      Effect.tapError((error) =>
+        Effect.flatMap(Ref.get(currentPhase), (phase) =>
+          progress.emit({
+            kind: "action_failed",
+            phase: Option.getOrNull(phase),
+            message: error.message,
+          }),
+        ),
+      ),
+    );
+  });
+
   const runStackedAction: GitManager["Service"]["runStackedAction"] = Effect.fn("runStackedAction")(
     function* (input, options) {
+      const driverKind = yield* vcsChangeService.detectKind(input.cwd).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitManagerError({
+              operation: "runStackedAction.detectKind",
+              cwd: input.cwd,
+              detail: cause.message,
+              cause,
+            }),
+        ),
+      );
+      if (driverKind === "jj") {
+        return yield* runJjStackedAction(input, options);
+      }
       const progress = yield* createProgressEmitter(input, options);
       const currentPhase = yield* Ref.make<Option.Option<GitActionProgressPhase>>(Option.none());
 

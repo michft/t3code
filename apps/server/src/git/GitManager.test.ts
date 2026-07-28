@@ -16,7 +16,9 @@ import { expect } from "vite-plus/test";
 import type {
   GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
+  GitRunStackedActionInput,
   ThreadId,
+  VcsNamedRef,
 } from "@t3tools/contracts";
 
 import {
@@ -29,6 +31,9 @@ import {
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsChangeService from "../vcs/VcsChangeService.ts";
+import * as VcsSyncService from "../vcs/VcsSyncService.ts";
+import * as VcsReviewService from "../vcs/VcsReviewService.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubSourceControlProvider from "../sourceControl/GitHubSourceControlProvider.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
@@ -586,6 +591,7 @@ function runStackedAction(
     commitMessage?: string;
     featureBranch?: boolean;
     filePaths?: readonly string[];
+    publishRef?: GitRunStackedActionInput["publishRef"];
   },
   options?: Parameters<GitManager.GitManager["Service"]["runStackedAction"]>[1],
 ) {
@@ -617,6 +623,9 @@ function makeManager(input?: {
   textGeneration?: Partial<FakeGitTextGeneration>;
   serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
+  vcsChangeService?: VcsChangeService.VcsChangeService["Service"];
+  vcsSyncService?: VcsSyncService.VcsSyncService["Service"];
+  vcsReviewService?: VcsReviewService.VcsReviewService["Service"];
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
@@ -651,6 +660,28 @@ function makeManager(input?: {
     Layer.mock(ProviderRegistry.ProviderRegistry)({
       getProviders: Effect.succeed([]),
     }),
+    Layer.succeed(
+      VcsChangeService.VcsChangeService,
+      input?.vcsChangeService ?? {
+        detectKind: () => Effect.succeed("git" as const),
+        prepareMessageContext: () => Effect.die("unexpected jj change context"),
+        finalizeChange: () => Effect.die("unexpected jj change finalization"),
+      },
+    ),
+    Layer.succeed(
+      VcsSyncService.VcsSyncService,
+      input?.vcsSyncService ?? {
+        fetch: () => Effect.die("unexpected jj fetch"),
+        publish: () => Effect.die("unexpected jj publish"),
+        readRangeContext: () => Effect.die("unexpected jj range context"),
+      },
+    ),
+    Layer.succeed(
+      VcsReviewService.VcsReviewService,
+      input?.vcsReviewService ?? {
+        prepareReview: () => Effect.die("unexpected jj review preparation"),
+      },
+    ),
     Layer.succeed(
       ProjectSetupScriptRunner.ProjectSetupScriptRunner,
       input?.setupScriptRunner ?? {
@@ -1744,6 +1775,192 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           Effect.map((result) => result.stdout.trim()),
         ),
       ).toContain("- details from user");
+    }),
+  );
+
+  it.effect("routes jj finalization through VcsChangeService with AI context", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-jj-manager-");
+      let finalizeInput: VcsChangeService.VcsFinalizeChangeInput | null = null;
+      const { manager } = yield* makeManager({
+        vcsChangeService: {
+          detectKind: () => Effect.succeed("jj"),
+          prepareMessageContext: () =>
+            Effect.succeed({
+              summary: "modified\tsrc/change.ts",
+              patch: "diff --git a/src/change.ts b/src/change.ts\n",
+              workspaceRevision: { commitId: "before-commit", changeId: "before-change" },
+            }),
+          finalizeChange: (input) => {
+            finalizeInput = input;
+            return Effect.succeed({
+              status: "created" as const,
+              finalizedRevision: { commitId: "finalized-commit", changeId: "finalized-change" },
+              workspaceRevision: { commitId: "workspace-commit", changeId: "workspace-change" },
+              publishRef: {
+                kind: "bookmark" as const,
+                name: "feature/implement-stacked-git-actions",
+                target: { commitId: "finalized-commit", changeId: "finalized-change" },
+              },
+            });
+          },
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "commit",
+        featureBranch: true,
+        filePaths: ["src/change.ts"],
+      });
+
+      expect(finalizeInput).toMatchObject({
+        cwd: repoDir,
+        message: "Implement stacked git actions",
+        filePaths: ["src/change.ts"],
+        createPublishRef: "feature/implement-stacked-git-actions",
+      });
+      expect(result.branch).toEqual({
+        status: "created",
+        name: "feature/implement-stacked-git-actions",
+      });
+      expect(result.commit).toMatchObject({
+        status: "created",
+        commitSha: "finalized-commit",
+        finalizedRevision: { commitId: "finalized-commit", changeId: "finalized-change" },
+        workspaceRevision: { commitId: "workspace-commit", changeId: "workspace-change" },
+      });
+      expect(result.toast.title).toBe("Finalized finaliz");
+    }),
+  );
+
+  it.effect("moves and publishes only the explicit jj bookmark", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-jj-publish-");
+      const existingPublishRef = {
+        kind: "bookmark" as const,
+        name: "feature/phase-6",
+        target: { commitId: "previous-commit", changeId: "previous-change" },
+      };
+      let finalizeInput: VcsChangeService.VcsFinalizeChangeInput | null = null;
+      let publishedRef: VcsNamedRef | null = null;
+      const { manager } = yield* makeManager({
+        vcsChangeService: {
+          detectKind: () => Effect.succeed("jj"),
+          prepareMessageContext: () =>
+            Effect.succeed({
+              summary: "modified\tchange.txt",
+              patch: "diff --git a/change.txt b/change.txt\n",
+              workspaceRevision: { commitId: "before", changeId: "before-change" },
+            }),
+          finalizeChange: (input) => {
+            finalizeInput = input;
+            return Effect.succeed({
+              status: "created" as const,
+              finalizedRevision: { commitId: "published-commit", changeId: "published-change" },
+              workspaceRevision: { commitId: "workspace-commit", changeId: "workspace-change" },
+              publishRef: {
+                kind: "bookmark" as const,
+                name: existingPublishRef.name,
+                target: { commitId: "published-commit", changeId: "published-change" },
+              },
+            });
+          },
+        },
+        vcsSyncService: {
+          fetch: () => Effect.die("unexpected jj fetch"),
+          publish: (input) => {
+            publishedRef = input.publishRef;
+            return Effect.succeed({
+              status: "pushed" as const,
+              remoteName: "origin",
+              publishRef: { ...input.publishRef, remoteName: "origin" },
+            });
+          },
+          readRangeContext: () => Effect.die("unexpected jj range context"),
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "commit_push",
+        commitMessage: "Publish Phase 6",
+        publishRef: existingPublishRef,
+      });
+
+      expect(finalizeInput).toMatchObject({ publishRef: existingPublishRef });
+      expect(publishedRef).toMatchObject({
+        name: existingPublishRef.name,
+        target: { commitId: "published-commit" },
+      });
+      expect(result.push).toEqual({
+        status: "pushed",
+        branch: existingPublishRef.name,
+        upstreamBranch: `origin/${existingPublishRef.name}`,
+        setUpstream: true,
+      });
+      expect(result.commit.publishRef?.remoteName).toBe("origin");
+    }),
+  );
+
+  it.effect("uses the published jj bookmark as the change-request head", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-jj-pr-");
+      yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "--set-upstream", "origin", "main"]);
+      const baseRevision = (yield* runGit(repoDir, [
+        "rev-parse",
+        "refs/remotes/origin/main",
+      ])).stdout.trim();
+      const publishRef = {
+        kind: "bookmark" as const,
+        name: "feature/phase-6-pr",
+        remoteName: "origin",
+        target: { commitId: "published-commit", changeId: "published-change" },
+      };
+      const createdPr =
+        '[{"number":106,"title":"Phase 6 change request","url":"https://github.com/michft/t3code/pull/106","baseRefName":"main","headRefName":"feature/phase-6-pr","state":"OPEN"}]';
+      let observedBaseRevision: string | null = null;
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: { prListSequence: ["[]", createdPr], defaultBranch: "main" },
+        vcsChangeService: {
+          detectKind: () => Effect.succeed("jj"),
+          prepareMessageContext: () => Effect.die("unexpected jj change context"),
+          finalizeChange: () => Effect.die("unexpected jj finalization"),
+        },
+        vcsSyncService: {
+          fetch: () => Effect.die("unexpected jj fetch"),
+          publish: () =>
+            Effect.succeed({ status: "pushed" as const, remoteName: "origin", publishRef }),
+          readRangeContext: (input) => {
+            observedBaseRevision = input.baseRevision;
+            return Effect.succeed({
+              commitSummary: "published Phase 6",
+              diffSummary: "1 change",
+              diffPatch: "diff --git a/change.txt b/change.txt\n",
+            });
+          },
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+        publishRef,
+      });
+
+      expect(result.pr).toMatchObject({
+        status: "created",
+        number: 106,
+        headBranch: publishRef.name,
+      });
+      expect(observedBaseRevision).toBe(baseRevision);
+      expect(ghCalls.some((call) => call.includes(`--head ${publishRef.name}`))).toBe(true);
+      expect(
+        ghCalls.some((call) => call.includes("pr create") && call.includes(publishRef.name)),
+      ).toBe(true);
     }),
   );
 
@@ -3059,6 +3276,134 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       const branch = (yield* runGit(repoDir, ["branch", "--show-current"])).stdout.trim();
       expect(branch).toBe("feature/pr-local");
       expect(ghCalls).toContain("pr checkout 64 --force");
+    }),
+  );
+
+  it.effect("routes Jujutsu pull request preparation through the review service", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const reviewCalls: Array<
+        Parameters<VcsReviewService.VcsReviewService["Service"]["prepareReview"]>[0]
+      > = [];
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          pullRequest: {
+            number: 67,
+            title: "JJ review",
+            url: "https://github.com/michft/t3code/pull/67",
+            baseRefName: "main",
+            headRefName: "feature/jj-review",
+            state: "open",
+          },
+        },
+        vcsChangeService: {
+          detectKind: () => Effect.succeed("jj" as const),
+          prepareMessageContext: () => Effect.die("unexpected jj change context"),
+          finalizeChange: () => Effect.die("unexpected jj change finalization"),
+        },
+        vcsReviewService: {
+          prepareReview: (input) => {
+            reviewCalls.push(input);
+            return Effect.succeed({
+              bookmarkName: "t3code-review-67",
+              remoteName: "origin",
+              workspacePath: null,
+            });
+          },
+        },
+      });
+
+      const result = yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "#67",
+        mode: "local",
+      });
+
+      expect(result.branch).toBe("t3code-review-67");
+      expect(result.worktreePath).toBeNull();
+      expect(reviewCalls).toEqual([
+        {
+          cwd: repoDir,
+          changeRequestNumber: 67,
+          headRefName: "feature/jj-review",
+          mode: "local",
+        },
+      ]);
+      expect(ghCalls).not.toContain("pr checkout 67 --force");
+      const threadId = asThreadId("thread-jj-worktree-review");
+
+      yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "#67",
+        mode: "worktree",
+        threadId,
+      });
+
+      expect(reviewCalls[1]).toEqual({
+        cwd: repoDir,
+        changeRequestNumber: 67,
+        headRefName: "feature/jj-review",
+        mode: "worktree",
+        threadId,
+      });
+
+      const error = yield* Effect.flip(
+        preparePullRequestThread(manager, {
+          cwd: repoDir,
+          reference: "#67",
+          mode: "worktree",
+        }),
+      );
+      expect(error.message).toContain("thread id is required");
+      expect(reviewCalls).toHaveLength(2);
+    }),
+  );
+
+  it.effect("rejects a cross-repository Jujutsu review without a head repository", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const reviewCalls: Array<
+        Parameters<VcsReviewService.VcsReviewService["Service"]["prepareReview"]>[0]
+      > = [];
+      const { manager } = yield* makeManager({
+        ghScenario: {
+          pullRequest: {
+            number: 68,
+            title: "JJ fork review",
+            url: "https://github.com/pingdotgg/t3code/pull/68",
+            baseRefName: "main",
+            headRefName: "feature/jj-fork-review",
+            state: "open",
+            isCrossRepository: true,
+          },
+        },
+        vcsChangeService: {
+          detectKind: () => Effect.succeed("jj" as const),
+          prepareMessageContext: () => Effect.die("unexpected jj change context"),
+          finalizeChange: () => Effect.die("unexpected jj change finalization"),
+        },
+        vcsReviewService: {
+          prepareReview: (input) => {
+            reviewCalls.push(input);
+            return Effect.succeed({
+              bookmarkName: "t3code-review-68",
+              remoteName: "origin",
+              workspacePath: null,
+            });
+          },
+        },
+      });
+
+      const error = yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "#68",
+        mode: "local",
+      }).pipe(Effect.flip);
+
+      expect(error.message).toContain("head repository");
+      expect(reviewCalls).toEqual([]);
     }),
   );
 

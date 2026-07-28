@@ -61,6 +61,7 @@ export function useSelectedThreadGitActions() {
       nextState: {
         readonly branch?: string | null;
         readonly worktreePath?: string | null;
+        readonly vcsWorkspace?: EnvironmentThreadShell["vcsWorkspace"];
       },
     ) => {
       return updateThreadMetadata({
@@ -69,6 +70,7 @@ export function useSelectedThreadGitActions() {
           threadId: thread.id,
           ...(nextState.branch !== undefined ? { branch: nextState.branch } : {}),
           ...(nextState.worktreePath !== undefined ? { worktreePath: nextState.worktreePath } : {}),
+          ...(nextState.vcsWorkspace !== undefined ? { vcsWorkspace: nextState.vcsWorkspace } : {}),
         },
       });
     },
@@ -178,6 +180,7 @@ export function useSelectedThreadGitActions() {
       readonly nextThreadState?: {
         readonly branch?: string | null;
         readonly worktreePath?: string | null;
+        readonly vcsWorkspace?: EnvironmentThreadShell["vcsWorkspace"];
       };
     }): Promise<AtomCommandResult<void, unknown>> => {
       if (input.nextThreadState) {
@@ -269,6 +272,7 @@ export function useSelectedThreadGitActions() {
             environmentId: thread.environmentId,
             input: {
               cwd: project.workspaceRoot,
+              threadId: thread.id,
               refName: nextWorktree.baseBranch,
               newRefName: sanitizeFeatureBranchName(nextWorktree.newBranch),
               path: null,
@@ -281,8 +285,10 @@ export function useSelectedThreadGitActions() {
             thread,
             cwd: result.value.worktree.path,
             nextThreadState: {
-              branch: result.value.worktree.refName,
+              branch:
+                result.value.workspace?.driverKind === "jj" ? null : result.value.worktree.refName,
               worktreePath: result.value.worktree.path,
+              ...(result.value.workspace ? { vcsWorkspace: result.value.workspace } : {}),
             },
           });
           return AsyncResult.isFailure(syncResult) ? AsyncResult.failure(syncResult.cause) : result;
@@ -304,18 +310,55 @@ export function useSelectedThreadGitActions() {
         if (AsyncResult.isFailure(result)) {
           return result;
         }
-        await refreshSelectedThreadGitStatus({ quiet: true, cwd });
+        if (result.value.workspaceRevision && thread.vcsWorkspace) {
+          const syncResult = await syncSelectedThreadBranchState({
+            thread,
+            cwd,
+            nextThreadState: {
+              vcsWorkspace: {
+                ...thread.vcsWorkspace,
+                workspaceRevision: result.value.workspaceRevision,
+              },
+            },
+          });
+          if (AsyncResult.isFailure(syncResult)) {
+            return AsyncResult.failure(syncResult.cause);
+          }
+        } else {
+          await refreshSelectedThreadGitStatus({ quiet: true, cwd });
+        }
+        const needsRebase = result.value.status === "fetched_needs_rebase";
+        const needsResolution = result.value.status === "fetched_needs_resolution";
+        const conflictDescription =
+          needsResolution && result.value.conflicts?.length
+            ? result.value.conflicts
+                .map((conflict) =>
+                  conflict.kind === "content"
+                    ? `File conflict: ${conflict.path}`
+                    : `Bookmark conflict: ${conflict.ref.name}`,
+                )
+                .join("\n")
+            : undefined;
         showGitActionResult({
           type: "success",
-          title:
-            result.value.status === "skipped_up_to_date"
-              ? "Already up to date"
-              : `Pulled latest on ${result.value.refName}`,
+          title: needsResolution
+            ? "Fetched; resolution needed"
+            : needsRebase
+              ? "Fetched; rebase needed"
+              : result.value.status === "skipped_up_to_date"
+                ? "Already up to date"
+                : `Updated ${result.value.refName}`,
+          description: conflictDescription,
         });
         return result;
       },
     );
-  }, [pull, refreshSelectedThreadGitStatus, runSelectedThreadGitMutation]);
+  }, [
+    pull,
+    refreshSelectedThreadGitStatus,
+    runSelectedThreadGitMutation,
+    syncSelectedThreadBranchState,
+  ]);
 
   const onRunSelectedThreadGitAction = useCallback(
     async (input: GitActionRequestInput): Promise<GitRunStackedActionResult | null> => {
@@ -330,6 +373,9 @@ export function useSelectedThreadGitActions() {
             ...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
             ...(input.featureBranch ? { featureBranch: input.featureBranch } : {}),
             ...(input.filePaths?.length ? { filePaths: [...input.filePaths] } : {}),
+            ...(!input.featureBranch && thread.vcsWorkspace?.publishRef
+              ? { publishRef: thread.vcsWorkspace.publishRef }
+              : {}),
           });
           if (AsyncResult.isFailure(result)) {
             return result;
@@ -343,7 +389,28 @@ export function useSelectedThreadGitActions() {
               result.value.toast.cta.kind === "open_pr" ? result.value.toast.cta.url : undefined,
           });
 
-          if (result.value.branch.status === "created" && result.value.branch.name) {
+          if (
+            (result.value.commit.workspaceRevision || result.value.commit.publishRef) &&
+            thread.vcsWorkspace
+          ) {
+            const syncResult = await syncSelectedThreadBranchState({
+              thread,
+              cwd,
+              nextThreadState: {
+                vcsWorkspace: {
+                  ...thread.vcsWorkspace,
+                  workspaceRevision:
+                    result.value.commit.workspaceRevision ?? thread.vcsWorkspace.workspaceRevision,
+                  ...(result.value.commit.publishRef
+                    ? { publishRef: result.value.commit.publishRef }
+                    : {}),
+                },
+              },
+            });
+            if (AsyncResult.isFailure(syncResult)) {
+              return AsyncResult.failure(syncResult.cause);
+            }
+          } else if (result.value.branch.status === "created" && result.value.branch.name) {
             const syncResult = await syncSelectedThreadBranchState({
               thread,
               cwd,
