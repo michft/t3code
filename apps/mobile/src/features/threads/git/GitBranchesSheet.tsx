@@ -1,4 +1,5 @@
 import { sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { capitalizeVcsTerm, getVcsPresentation } from "@t3tools/client-runtime/state/vcs";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useState } from "react";
 import { Platform, Pressable, ScrollView, View } from "react-native";
@@ -37,7 +38,10 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
       : null,
   );
 
-  const currentBranchLabel = gitStatus.data?.refName ?? selectedThread?.branch ?? "Detached HEAD";
+  const vcsPresentation = getVcsPresentation(gitStatus.data?.driverKind);
+  const refsLabel = capitalizeVcsTerm(vcsPresentation.refPlural);
+  const currentBranchLabel =
+    gitStatus.data?.refName ?? selectedThread?.branch ?? vcsPresentation.currentRefFallback;
   const currentWorktreePath = selectedThreadWorktreePath;
   const availableBranches = gitState.selectedThreadBranches;
   const branchesLoading = gitState.selectedThreadBranchesLoading;
@@ -45,7 +49,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
 
   const [newBranchName, setNewBranchName] = useState("");
   const [worktreeBaseBranch, setWorktreeBaseBranch] = useState(
-    currentBranchLabel === "Detached HEAD" ? "main" : currentBranchLabel,
+    currentBranchLabel === vcsPresentation.currentRefFallback ? "main" : currentBranchLabel,
   );
   const [worktreeBranchName, setWorktreeBranchName] = useState("");
 
@@ -60,7 +64,10 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
       {Platform.OS === "android" ? (
-        <AndroidSheetHeader title="Branches & worktrees" onBack={() => navigation.goBack()} />
+        <AndroidSheetHeader
+          title={`${refsLabel} & ${vcsPresentation.workspacePlural}`}
+          onBack={() => navigation.goBack()}
+        />
       ) : null}
       <ScrollView
         className="flex-1"
@@ -70,7 +77,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
       >
         <View className="gap-2 rounded-[18px] border border-border bg-card px-4 py-4">
           <Text className="text-foreground-secondary text-2xs font-t3-bold tracking-[1px] uppercase">
-            New branch
+            New {vcsPresentation.refSingular}
           </Text>
           <TextInput
             value={newBranchName}
@@ -96,7 +103,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
 
         <View className="gap-2 rounded-[18px] border border-border bg-card px-4 py-4">
           <Text className="text-foreground-secondary text-2xs font-t3-bold tracking-[1px] uppercase">
-            New worktree
+            New {vcsPresentation.workspaceSingular}
           </Text>
           <TextInput
             value={worktreeBaseBranch}
@@ -112,7 +119,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
           />
           <SheetActionButton
             icon="square.split.2x1"
-            label="Create worktree"
+            label={`Create ${vcsPresentation.workspaceSingular}`}
             tone="primary"
             disabled={
               busy ||
@@ -133,16 +140,16 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
 
         <View className="gap-2">
           <Text className="text-foreground-secondary text-2xs font-t3-bold tracking-[1px] uppercase">
-            Existing branches
+            Existing {vcsPresentation.refPlural}
           </Text>
           {branchesLoading ? (
             <Text className="text-foreground-secondary text-sm font-medium">
-              Loading branches...
+              Loading {vcsPresentation.refPlural}...
             </Text>
           ) : null}
           {!branchesLoading && availableBranches.length === 0 ? (
             <Text className="text-foreground-secondary text-sm font-medium">
-              No local branches found.
+              No local {vcsPresentation.refPlural} found.
             </Text>
           ) : null}
           {availableBranches.map((branch) => {
@@ -150,10 +157,10 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
             const subtitle = branch.worktreePath
               ? branch.worktreePath === currentWorktreePath
                 ? "Checked out in this thread"
-                : "Checked out in another worktree"
+                : `Checked out in another ${vcsPresentation.workspaceSingular}`
               : branch.isDefault
-                ? "Default branch"
-                : "Local branch";
+                ? `Default ${vcsPresentation.refSingular}`
+                : `Local ${vcsPresentation.refSingular}`;
 
             return (
               <Pressable

@@ -15,6 +15,7 @@ import {
   VcsProcessStdinWriteError,
   VcsProcessTimeoutError,
 } from "@t3tools/contracts";
+import { classifyJjCommandFailure } from "@t3tools/shared/jjCli";
 import * as ProcessRunner from "../processRunner.ts";
 
 export interface VcsProcessInput {
@@ -50,7 +51,15 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
 const OUTPUT_TRUNCATED_MARKER = "\n\n[truncated]";
 
-const classifyNonZeroExit = (command: string, stderr: string): VcsProcessExitFailureKind => {
+const classifyNonZeroExit = (
+  command: string,
+  stderr: string,
+  exitCode: number,
+): VcsProcessExitFailureKind => {
+  if (command === "jj") {
+    return classifyJjCommandFailure({ exitCode, stderr }) ?? "command-failed";
+  }
+
   const normalized = stderr.toLowerCase();
 
   if (
@@ -153,7 +162,7 @@ export const make = Effect.gen(function* () {
           stderr: result.stderr,
           stderrTruncated: result.stderrTruncated,
         },
-        classifyNonZeroExit(input.command, result.stderr),
+        classifyNonZeroExit(input.command, result.stderr, result.code),
       );
     }
 

@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import {
   type VcsDriverKind,
   type VcsError,
+  type VcsCloneRepositoryInput,
   type VcsInitInput,
   VcsUnsupportedOperationError,
 } from "@t3tools/contracts";
@@ -14,6 +15,7 @@ export class VcsProvisioningService extends Context.Service<
   VcsProvisioningService,
   {
     readonly initRepository: (input: VcsInitInput) => Effect.Effect<void, VcsError>;
+    readonly cloneRepository: (input: VcsCloneRepositoryInput) => Effect.Effect<void, VcsError>;
   }
 >()("t3/vcs/VcsProvisioningService") {}
 
@@ -46,8 +48,17 @@ export const make = Effect.gen(function* () {
     return yield* driver.initRepository(input);
   });
 
+  const cloneRepository: VcsProvisioningService["Service"]["cloneRepository"] = Effect.fn(
+    "VcsProvisioningService.cloneRepository",
+  )(function* (input) {
+    const kind = yield* resolveRequestedKind(input.kind);
+    const driver = yield* registry.get(kind);
+    return yield* driver.cloneRepository(input);
+  });
+
   return VcsProvisioningService.of({
     initRepository,
+    cloneRepository,
   });
 });
 

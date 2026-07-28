@@ -6,8 +6,9 @@ import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 
 import { ServerConfig } from "../config.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility.ts";
+import type * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ReviewService from "./ReviewService.ts";
 
 function makeLayer(input: {
@@ -27,7 +28,11 @@ function makeLayer(input: {
           }),
       }),
     ),
-    Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+    Layer.provide(
+      Layer.mock(VcsGitProviderCompatibility.VcsGitProviderCompatibility)({
+        git: {} as GitVcsDriver.GitVcsDriver["Service"],
+      }),
+    ),
     Layer.provide(ServerConfig.layerTest(input.workspaceRoot, input.baseDir)),
     Layer.provideMerge(NodeServices.layer),
   );

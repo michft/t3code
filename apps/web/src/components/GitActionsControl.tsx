@@ -4,6 +4,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { getVcsPresentation } from "@t3tools/client-runtime/state/vcs";
 import type {
   GitActionProgressEvent,
   GitRunStackedActionResult,
@@ -13,6 +14,7 @@ import type {
   SourceControlProviderKind,
   SourceControlPublishRepositoryResult,
   SourceControlRepositoryVisibility,
+  VcsNamedRef,
   VcsStatusResult,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -31,7 +33,13 @@ import {
   GlobeIcon,
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
-import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "~/components/Icons";
+import {
+  AzureDevOpsIcon,
+  BitbucketIcon,
+  GitHubIcon,
+  GitLabIcon,
+  JujutsuIcon,
+} from "~/components/Icons";
 import { RadioGroup } from "~/components/ui/radio-group";
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
@@ -326,8 +334,7 @@ function getMenuActionDisabledReason({
   return `Create ${terminology.singular} is currently unavailable.`;
 }
 
-const COMMIT_DIALOG_TITLE = "Commit changes";
-const COMMIT_DIALOG_DESCRIPTION =
+const GIT_COMMIT_DIALOG_DESCRIPTION =
   "Review and confirm your commit. Leave the message blank to auto-generate one.";
 
 function GitActionItemIcon({
@@ -369,6 +376,8 @@ interface PublishRepositoryDialogProps {
   readonly onOpenChange: (open: boolean) => void;
   readonly environmentId: ScopedThreadRef["environmentId"] | null;
   readonly gitCwd: string;
+  readonly publishRef: VcsNamedRef | null;
+  readonly onPublishRef: (publishRef: VcsNamedRef) => void;
 }
 
 function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
@@ -491,6 +500,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
         visibility: publishVisibility,
         remoteName: publishRemoteName.trim() || "origin",
         protocol: publishProtocol,
+        ...(props.publishRef ? { publishRef: props.publishRef } : {}),
       });
 
       if (result._tag === "Failure") {
@@ -505,11 +515,16 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
         setPublishResult(result.value);
         setPublishWizardStep(2);
       });
+      if (result.value.publishRef) {
+        props.onPublishRef(result.value.publishRef);
+      }
     })();
   }, [
     canSubmitPublishRepository,
     props.environmentId,
     props.gitCwd,
+    props.publishRef,
+    props.onPublishRef,
     publishProtocol,
     publishProvider,
     publishRemoteName,
@@ -1009,6 +1024,18 @@ export default function GitActionsControl({
     () => ({ environmentId: activeEnvironmentId, cwd: gitCwd }),
     [activeEnvironmentId, gitCwd],
   );
+  const sourceControlDiscovery = useEnvironmentQuery(
+    activeEnvironmentId === null
+      ? null
+      : sourceControlEnvironment.discovery({
+          environmentId: activeEnvironmentId,
+          input: {},
+        }),
+  );
+  const jjAvailable =
+    sourceControlDiscovery.data?.versionControlSystems.some(
+      (item) => item.kind === "jj" && item.status === "available" && item.implemented,
+    ) ?? false;
   let runGitActionWithToast: (input: RunGitActionWithToastInput) => Promise<void>;
 
   const updateActiveProgressToast = useCallback(() => {
@@ -1066,8 +1093,28 @@ export default function GitActionsControl({
     ],
   );
 
-  const syncThreadBranchAfterGitAction = useCallback(
+  const syncThreadAfterSourceControlAction = useCallback(
     (result: GitRunStackedActionResult) => {
+      if (
+        (result.commit.workspaceRevision || result.commit.publishRef) &&
+        activeServerThread?.vcsWorkspace &&
+        activeThreadRef
+      ) {
+        void updateThreadMetadata({
+          environmentId: activeThreadRef.environmentId,
+          input: {
+            threadId: activeThreadRef.threadId,
+            vcsWorkspace: {
+              ...activeServerThread.vcsWorkspace,
+              workspaceRevision:
+                result.commit.workspaceRevision ??
+                activeServerThread.vcsWorkspace.workspaceRevision,
+              ...(result.commit.publishRef ? { publishRef: result.commit.publishRef } : {}),
+            },
+          },
+        });
+        return;
+      }
       const branchUpdate = resolveThreadBranchUpdate(result);
       if (!branchUpdate) {
         return;
@@ -1075,7 +1122,7 @@ export default function GitActionsControl({
 
       persistThreadBranchSync(branchUpdate.branch);
     },
-    [persistThreadBranchSync],
+    [activeServerThread, activeThreadRef, persistThreadBranchSync, updateThreadMetadata],
   );
 
   const gitStatusQuery = useEnvironmentQuery(
@@ -1095,7 +1142,12 @@ export default function GitActionsControl({
     [gitStatus?.sourceControlProvider],
   );
   const changeRequestTerminology = sourceControlPresentation.terminology;
-  const SourceControlIcon = sourceControlPresentation.Icon;
+  const isJjRepository = gitStatus?.driverKind === "jj";
+  const versionControlPresentation = getVcsPresentation(gitStatus?.driverKind);
+  const jjPublishRef = isJjRepository
+    ? (activeServerThread?.vcsWorkspace?.publishRef ?? null)
+    : null;
+  const SourceControlIcon = isJjRepository ? JujutsuIcon : sourceControlPresentation.Icon;
   // Default to true while loading so we don't flash init controls.
   const isRepo = gitStatus?.isRepo ?? true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
@@ -1107,6 +1159,7 @@ export default function GitActionsControl({
   const noneSelected = selectedFiles.length === 0;
 
   const initAction = useVcsInitAction(sourceControlScope);
+  const initJjAction = useVcsInitAction(sourceControlScope, "jj");
   const runImmediateGitAction = useGitStackedAction(sourceControlScope);
   const pullAction = useVcsPullAction(sourceControlScope);
   const isGitActionRunning = useSourceControlActionRunning(
@@ -1119,7 +1172,7 @@ export default function GitActionsControl({
     activeDraftThread.worktreePath === null;
 
   useEffect(() => {
-    if (isGitActionRunning || isSelectingWorktreeBase || activeServerThread) {
+    if (isJjRepository || isGitActionRunning || isSelectingWorktreeBase || activeServerThread) {
       return;
     }
 
@@ -1137,6 +1190,7 @@ export default function GitActionsControl({
     activeDraftThread?.branch,
     gitStatusForActions,
     isGitActionRunning,
+    isJjRepository,
     isSelectingWorktreeBase,
     persistThreadBranchSync,
   ]);
@@ -1146,13 +1200,19 @@ export default function GitActionsControl({
   }, [gitStatusForActions?.isDefaultRef]);
 
   const gitActionMenuItems = useMemo(
-    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasPrimaryRemote),
-    [gitStatusForActions, hasPrimaryRemote, isGitActionRunning],
+    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasPrimaryRemote, jjPublishRef),
+    [gitStatusForActions, hasPrimaryRemote, isGitActionRunning, jjPublishRef],
   );
   const quickAction = useMemo(
     () =>
-      resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultRef, hasPrimaryRemote),
-    [gitStatusForActions, hasPrimaryRemote, isDefaultRef, isGitActionRunning],
+      resolveQuickAction(
+        gitStatusForActions,
+        isGitActionRunning,
+        isDefaultRef,
+        hasPrimaryRemote,
+        jjPublishRef,
+      ),
+    [gitStatusForActions, hasPrimaryRemote, isDefaultRef, isGitActionRunning, jjPublishRef],
   );
   const quickActionDisabledReason = quickAction.disabled
     ? (quickAction.hint ?? "This action is currently unavailable.")
@@ -1290,6 +1350,7 @@ export default function GitActionsControl({
 
       const progressStages = buildGitActionProgressStages({
         action,
+        driverKind: actionStatus?.driverKind,
         hasCustomCommitMessage: !!commitMessage?.trim(),
         hasWorkingTreeChanges: !!actionStatus?.hasWorkingTreeChanges,
         featureBranch,
@@ -1304,8 +1365,8 @@ export default function GitActionsControl({
         progressToastId ??
         toastManager.add({
           type: "loading",
-          title: progressStages[0] ?? "Running git action...",
-          description: "Waiting for Git...",
+          title: progressStages[0] ?? "Running source-control action...",
+          description: `Waiting for ${versionControlPresentation.systemLabel}...`,
           timeout: 0,
           data: scopedToastData,
         });
@@ -1314,19 +1375,19 @@ export default function GitActionsControl({
         toastId: resolvedProgressToastId,
         toastData: scopedToastData,
         actionId,
-        title: progressStages[0] ?? "Running git action...",
+        title: progressStages[0] ?? "Running source-control action...",
         phaseStartedAtMs: null,
         hookStartedAtMs: null,
         hookName: null,
         lastOutputLine: null,
-        currentPhaseLabel: progressStages[0] ?? "Running git action...",
+        currentPhaseLabel: progressStages[0] ?? "Running source-control action...",
       };
 
       if (progressToastId) {
         toastManager.update(progressToastId, {
           type: "loading",
-          title: progressStages[0] ?? "Running git action...",
-          description: "Waiting for Git...",
+          title: progressStages[0] ?? "Running source-control action...",
+          description: `Waiting for ${versionControlPresentation.systemLabel}...`,
           timeout: 0,
           data: scopedToastData,
         });
@@ -1394,6 +1455,7 @@ export default function GitActionsControl({
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
         ...(filePaths ? { filePaths } : {}),
+        ...(!featureBranch && jjPublishRef ? { publishRef: jjPublishRef } : {}),
         onProgress: applyProgressEvent,
       });
 
@@ -1418,7 +1480,7 @@ export default function GitActionsControl({
       }
 
       const actionResult = result.value;
-      syncThreadBranchAfterGitAction(actionResult);
+      syncThreadAfterSourceControlAction(actionResult);
       const closeResultToast = () => {
         toastManager.close(resolvedProgressToastId);
       };
@@ -1561,13 +1623,38 @@ export default function GitActionsControl({
         }
 
         const pullResult = result.value;
+        if (pullResult.workspaceRevision && activeServerThread?.vcsWorkspace && activeThreadRef) {
+          void updateThreadMetadata({
+            environmentId: activeThreadRef.environmentId,
+            input: {
+              threadId: activeThreadRef.threadId,
+              vcsWorkspace: {
+                ...activeServerThread.vcsWorkspace,
+                workspaceRevision: pullResult.workspaceRevision,
+              },
+            },
+          });
+        }
+        const needsRebase = pullResult.status === "fetched_needs_rebase";
+        const needsResolution = pullResult.status === "fetched_needs_resolution";
         toastManager.update(toastId, {
-          type: "success",
-          title: pullResult.status === "pulled" ? "Pulled" : "Already up to date",
-          description:
-            pullResult.status === "pulled"
-              ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
-              : `${pullResult.refName} is already synchronized.`,
+          type: needsRebase || needsResolution ? "info" : "success",
+          title: needsResolution
+            ? "Fetched; resolution needed"
+            : needsRebase
+              ? "Fetched; rebase needed"
+              : pullResult.status === "pulled"
+                ? isJjRepository
+                  ? "Fetched updates"
+                  : "Pulled"
+                : "Already up to date",
+          description: needsResolution
+            ? "Workspace or bookmark conflicts were left unchanged."
+            : needsRebase
+              ? "Local workspace changes were left unchanged."
+              : pullResult.status === "pulled"
+                ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
+                : `${pullResult.refName} is already synchronized.`,
           data: threadToastData,
         });
       })();
@@ -1614,7 +1701,7 @@ export default function GitActionsControl({
     setExcludedFiles(new Set());
     setIsEditingFiles(false);
     void runGitActionWithToast({
-      action: "commit",
+      action: isJjRepository && jjPublishRef ? "commit_push" : "commit",
       ...(commitMessage ? { commitMessage } : {}),
       ...(!allSelected ? { filePaths: selectedFiles.map((f) => f.path) } : {}),
     });
@@ -1657,35 +1744,62 @@ export default function GitActionsControl({
   return (
     <>
       {!isRepo ? (
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={initAction.isPending}
-          onClick={() => {
-            void (async () => {
-              const result = await initAction.run();
-              if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
-                return;
-              }
-              const error = squashAtomCommandFailure(result);
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title: "Git initialization failed",
-                  description: error instanceof Error ? error.message : "An error occurred.",
-                  ...(threadToastData !== undefined ? { data: threadToastData } : {}),
-                }),
-              );
-            })();
-          }}
-        >
-          <GitBranchPlusIcon className="size-3.5" aria-hidden />
-          <span className="ml-0.5">
-            {initAction.isPending ? "Initializing..." : "Initialize Git"}
-          </span>
-        </Button>
+        <Group aria-label="Initialize source control" className="shrink-0">
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={initAction.isPending}
+            onClick={() => {
+              void (async () => {
+                const result = await initAction.run();
+                if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+                const error = squashAtomCommandFailure(result);
+                toastManager.add(
+                  stackedThreadToast({
+                    type: "error",
+                    title: "Git initialization failed",
+                    description: error instanceof Error ? error.message : "An error occurred.",
+                    ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+                  }),
+                );
+              })();
+            }}
+          >
+            <GitBranchPlusIcon className="size-3.5" aria-hidden />
+            <span className="ml-0.5">
+              {initAction.isPending ? "Initializing..." : "Initialize Git"}
+            </span>
+          </Button>
+          {jjAvailable ? (
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={initJjAction.isPending}
+              onClick={() => {
+                void (async () => {
+                  const result = await initJjAction.run();
+                  if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+                  const error = squashAtomCommandFailure(result);
+                  toastManager.add(
+                    stackedThreadToast({
+                      type: "error",
+                      title: "Jujutsu initialization failed",
+                      description: error instanceof Error ? error.message : "An error occurred.",
+                      ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+                    }),
+                  );
+                })();
+              }}
+            >
+              <JujutsuIcon className="size-3.5" aria-hidden />
+              <span className="ml-0.5">
+                {initJjAction.isPending ? "Initializing..." : "Initialize Jujutsu"}
+              </span>
+            </Button>
+          ) : null}
+        </Group>
       ) : (
-        <Group aria-label="Git actions" className="shrink-0">
+        <Group aria-label="Source control actions" className="shrink-0">
           {quickActionDisabledReason ? (
             <Popover>
               <PopoverTrigger
@@ -1733,12 +1847,41 @@ export default function GitActionsControl({
             }}
           >
             <MenuTrigger
-              render={<Button aria-label="Git action options" size="icon-xs" variant="outline" />}
+              render={
+                <Button aria-label="Source control options" size="icon-xs" variant="outline" />
+              }
               disabled={isGitActionRunning}
             >
               <ChevronDownIcon aria-hidden="true" className="size-4" />
             </MenuTrigger>
             <MenuPopup align="end" className="w-full">
+              {isJjRepository && gitStatusForActions ? (
+                <div className="min-w-64 space-y-1 border-b px-2 py-2 text-xs">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-foreground">Workspace change</span>
+                    <span
+                      className="max-w-40 truncate font-mono"
+                      title={gitStatusForActions.workspaceRevision ?? undefined}
+                    >
+                      {gitStatusForActions.workspaceRevision?.slice(0, 12) ?? "Unavailable"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-foreground">Publish bookmark</span>
+                    <span>{gitStatusForActions.publishRef ?? "None"}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-foreground">Changed files</span>
+                    <span>{gitStatusForActions.workingTree.files.length}</span>
+                  </div>
+                  {(gitStatusForActions.conflicts?.length ?? 0) > 0 ? (
+                    <p className="text-warning">
+                      {gitStatusForActions.conflicts?.length} conflict
+                      {gitStatusForActions.conflicts?.length === 1 ? "" : "s"}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               {gitActionMenuItems.map((item) => {
                 const disabledReason = getMenuActionDisabledReason({
                   item,
@@ -1793,7 +1936,7 @@ export default function GitActionsControl({
                   Publish repository...
                 </MenuItem>
               ) : null}
-              {gitStatusForActions?.refName === null && (
+              {!isJjRepository && gitStatusForActions?.refName === null && (
                 <p className="px-2 py-1.5 text-xs text-warning">
                   Detached HEAD: create and checkout a refName to enable push and pull request
                   actions.
@@ -1829,18 +1972,26 @@ export default function GitActionsControl({
       >
         <DialogPopup>
           <DialogHeader>
-            <DialogTitle>{COMMIT_DIALOG_TITLE}</DialogTitle>
-            <DialogDescription>{COMMIT_DIALOG_DESCRIPTION}</DialogDescription>
+            <DialogTitle>{isJjRepository ? "Finalize change" : "Commit changes"}</DialogTitle>
+            <DialogDescription>
+              {isJjRepository
+                ? "Review and finalize the working-copy change. Leave the message blank to auto-generate one."
+                : GIT_COMMIT_DIALOG_DESCRIPTION}
+            </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-4">
             <div className="space-y-3 rounded-xl bg-zinc-25 p-3 text-sm ring-1 ring-black/5 dark:bg-white/[0.035] dark:ring-white/5">
               <div className="grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1">
-                <span className="text-muted-foreground">Branch</span>
+                <span className="text-muted-foreground">
+                  {isJjRepository ? "Workspace change" : "Branch"}
+                </span>
                 <span className="flex items-center justify-between gap-2">
                   <span className="font-medium">
-                    {gitStatusForActions?.refName ?? "(detached HEAD)"}
+                    {isJjRepository
+                      ? (gitStatusForActions?.workspaceRevision ?? "unknown")
+                      : (gitStatusForActions?.refName ?? "(detached HEAD)")}
                   </span>
-                  {isDefaultRef && (
+                  {!isJjRepository && isDefaultRef && (
                     <span className="text-right text-warning">Warning: default refName</span>
                   )}
                 </span>
@@ -1946,7 +2097,9 @@ export default function GitActionsControl({
               </div>
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-medium">Commit message (optional)</p>
+              <p className="text-sm font-medium">
+                {isJjRepository ? "Change message (optional)" : "Commit message (optional)"}
+              </p>
               <Textarea
                 value={dialogCommitMessage}
                 onChange={(event) => setDialogCommitMessage(event.target.value)}
@@ -1974,10 +2127,14 @@ export default function GitActionsControl({
               disabled={noneSelected}
               onClick={runDialogActionOnNewBranch}
             >
-              Commit on new refName
+              {isJjRepository ? "Finalize with new bookmark" : "Commit on new refName"}
             </Button>
             <Button size="sm" disabled={noneSelected} onClick={runDialogAction}>
-              Commit
+              {isJjRepository
+                ? jjPublishRef
+                  ? "Finalize & publish"
+                  : "Finalize change"
+                : "Commit"}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -1988,6 +2145,17 @@ export default function GitActionsControl({
         onOpenChange={setIsPublishDialogOpen}
         environmentId={activeEnvironmentId}
         gitCwd={gitCwd}
+        publishRef={jjPublishRef}
+        onPublishRef={(publishRef) => {
+          if (!activeServerThread?.vcsWorkspace || !activeThreadRef) return;
+          void updateThreadMetadata({
+            environmentId: activeThreadRef.environmentId,
+            input: {
+              threadId: activeThreadRef.threadId,
+              vcsWorkspace: { ...activeServerThread.vcsWorkspace, publishRef },
+            },
+          });
+        }}
       />
 
       <Dialog

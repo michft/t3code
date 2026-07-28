@@ -105,6 +105,8 @@ import * as VcsDriver from "./vcs/VcsDriver.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
+import * as VcsWorkspaceService from "./vcs/VcsWorkspaceService.ts";
+import * as VcsGitProviderCompatibility from "./vcs/VcsGitProviderCompatibility.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
@@ -335,6 +337,7 @@ const buildAppUnderTest = (options?: {
     >;
     reviewService?: Partial<ReviewService.ReviewService["Service"]>;
     vcsStatusBroadcaster?: Partial<VcsStatusBroadcaster.VcsStatusBroadcaster["Service"]>;
+    vcsWorkspaceService?: Partial<VcsWorkspaceService.VcsWorkspaceService["Service"]>;
     projectSetupScriptRunner?: Partial<
       ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]
     >;
@@ -404,7 +407,7 @@ const buildAppUnderTest = (options?: {
       execute: () =>
         Effect.succeed({
           exitCode: ChildProcessSpawner.ExitCode(0),
-          stdout: "",
+          stdout: "0000000000000000000000000000000000000000\n",
           stderr: "",
           stdoutTruncated: false,
           stderrTruncated: false,
@@ -430,8 +433,12 @@ const buildAppUnderTest = (options?: {
             expiresAt: Option.none(),
           },
         }),
+      addRemote: () => Effect.void,
+      removeRemote: () => Effect.void,
+      resolveDefaultRemote: () => Effect.succeed(null),
       filterIgnoredPaths: (_cwd, relativePaths) => Effect.succeed(relativePaths),
       initRepository: () => Effect.void,
+      cloneRepository: () => Effect.void,
       ...options?.layers?.vcsDriver,
     };
     const vcsDriverRegistryLayer = Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
@@ -490,6 +497,9 @@ const buildAppUnderTest = (options?: {
     const gitVcsDriverLayer = Layer.mock(GitVcsDriver.GitVcsDriver)({
       ...options?.layers?.gitVcsDriver,
     });
+    const gitProviderCompatibilityLayer = VcsGitProviderCompatibility.layer.pipe(
+      Layer.provide(gitVcsDriverLayer),
+    );
     const gitManagerLayer = Layer.mock(GitManager.GitManager)({
       ...options?.layers?.gitManager,
     });
@@ -517,12 +527,20 @@ const buildAppUnderTest = (options?: {
     const vcsProvisioningLayer = VcsProvisioningService.layer.pipe(
       Layer.provide(vcsDriverRegistryLayer),
     );
+    const vcsWorkspaceLayer = options?.layers?.vcsWorkspaceService
+      ? Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({
+          ...options.layers.vcsWorkspaceService,
+        })
+      : VcsWorkspaceService.layer.pipe(
+          Layer.provideMerge(vcsDriverRegistryLayer),
+          Layer.provideMerge(gitWorkflowLayer),
+        );
     const reviewLayer = options?.layers?.reviewService
       ? Layer.mock(ReviewService.ReviewService)({
           ...options.layers.reviewService,
         })
       : ReviewService.layer.pipe(
-          Layer.provideMerge(gitVcsDriverLayer),
+          Layer.provideMerge(gitProviderCompatibilityLayer),
           Layer.provide(vcsDriverRegistryLayer),
         );
     const vcsStatusBroadcasterLayer = options?.layers?.vcsStatusBroadcaster
@@ -642,6 +660,7 @@ const buildAppUnderTest = (options?: {
       Layer.provide(gitWorkflowLayer),
       Layer.provide(reviewLayer),
       Layer.provide(vcsProvisioningLayer),
+      Layer.provide(vcsWorkspaceLayer),
       Layer.provide(
         Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({
           ...options?.layers?.sourceControlRepositoryService,
@@ -722,6 +741,9 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.projectionSnapshotQuery,
         }),
       ),
+    );
+
+    const appLayer = servedRoutesLayer.pipe(
       Layer.provide(
         Layer.mock(CheckpointDiffQuery.CheckpointDiffQuery)({
           getTurnDiff: () =>
@@ -741,9 +763,6 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.checkpointDiffQuery,
         }),
       ),
-    );
-
-    const appLayer = servedRoutesLayer.pipe(
       Layer.provide(
         Layer.mock(BrowserTraceCollector.BrowserTraceCollector)({
           record: () => Effect.void,
@@ -4857,6 +4876,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc git methods", () =>
     Effect.gen(function* () {
+      const refreshedStatusCwds: string[] = [];
       yield* buildAppUnderTest({
         config: {
           cwd: "/tmp/repo",
@@ -5002,18 +5022,21 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             switchRef: (input) => Effect.succeed({ refName: input.refName }),
           },
           vcsStatusBroadcaster: {
-            refreshStatus: () =>
-              Effect.succeed({
-                isRepo: true,
-                hasPrimaryRemote: true,
-                isDefaultRef: true,
-                refName: "main",
-                hasWorkingTreeChanges: false,
-                workingTree: { files: [], insertions: 0, deletions: 0 },
-                hasUpstream: true,
-                aheadCount: 0,
-                behindCount: 0,
-                pr: null,
+            refreshStatus: (cwd) =>
+              Effect.sync(() => {
+                refreshedStatusCwds.push(cwd);
+                return {
+                  isRepo: true,
+                  hasPrimaryRemote: true,
+                  isDefaultRef: true,
+                  refName: "main",
+                  hasWorkingTreeChanges: false,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                };
               }),
           },
           reviewService: {
@@ -5144,13 +5167,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
 
+      const refreshCountBeforeInit = refreshedStatusCwds.length;
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
           client[WS_METHODS.vcsInit]({
             cwd: "/tmp/repo",
+            kind: "jj",
           }),
         ),
       );
+      assert.equal(refreshedStatusCwds.length, refreshCountBeforeInit + 1);
 
       const diffPreview = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>

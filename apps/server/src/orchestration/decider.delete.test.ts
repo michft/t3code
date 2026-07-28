@@ -67,7 +67,15 @@ const seedReadModel = Effect.gen(function* () {
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       runtimeMode: "approval-required",
       branch: null,
-      worktreePath: null,
+      worktreePath: "/tmp/workspaces/thread-delete-1",
+      vcsWorkspace: {
+        driverKind: "jj",
+        name: "t3code-thread-delete-1",
+        rootPath: "/tmp/workspaces/thread-delete-1",
+        workspaceRevision: { commitId: "workspace-commit", changeId: "workspace-change" },
+        baseRevision: { commitId: "base-commit", changeId: "base-change" },
+        publishRef: null,
+      },
       createdAt: now,
       updatedAt: now,
     },
@@ -137,6 +145,25 @@ function normalizeDeleteEvent(event: PlannedEvent | ReadonlyArray<PlannedEvent>)
 }
 
 it.layer(NodeServices.layer)("decider deletion flows", (it) => {
+  it.effect("carries workspace identity into thread cleanup events", () =>
+    Effect.gen(function* () {
+      const readModel = yield* seedReadModel;
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.delete",
+          commandId: asCommandId("cmd-thread-delete-workspace"),
+          threadId: asThreadId("thread-delete-1"),
+        },
+        readModel,
+      });
+      const event = Array.isArray(result) ? result[0] : result;
+      expect(event?.type).toBe("thread.deleted");
+      if (event?.type !== "thread.deleted") return;
+      expect(event.payload.workspaceRoot).toBe("/tmp/project-delete");
+      expect(event.payload.vcsWorkspace?.name).toBe("t3code-thread-delete-1");
+    }),
+  );
+
   it.effect("rejects deleting a non-empty project without force", () =>
     Effect.gen(function* () {
       const readModel = yield* seedReadModel;

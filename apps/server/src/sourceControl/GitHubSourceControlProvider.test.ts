@@ -191,6 +191,15 @@ it.effect("creates GitHub PRs through provider-neutral input names", () =>
 
     yield* provider.createChangeRequest({
       cwd: "/repo",
+      context: {
+        provider: {
+          kind: "github",
+          name: "GitHub",
+          baseUrl: "https://github.com",
+        },
+        remoteName: "origin",
+        remoteUrl: "git@github.com:michft/t3code.git",
+      },
       baseRefName: "main",
       headSelector: "owner:feature/provider",
       title: "Provider PR",
@@ -203,6 +212,7 @@ it.effect("creates GitHub PRs through provider-neutral input names", () =>
       headSelector: "owner:feature/provider",
       title: "Provider PR",
       bodyFile: "/tmp/body.md",
+      repository: "michft/t3code",
     });
   }),
 );
