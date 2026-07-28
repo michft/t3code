@@ -7,6 +7,7 @@ import * as Stream from "effect/Stream";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
+import { VcsWorkspaceService } from "../../vcs/VcsWorkspaceService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
   ThreadDeletionReactor,
@@ -40,6 +41,7 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
   const terminalManager = yield* TerminalManager.TerminalManager;
+  const vcsWorkspaceService = yield* VcsWorkspaceService;
 
   const stopProviderSession = (threadId: ThreadDeletedEvent["payload"]["threadId"]) =>
     logCleanupCauseUnlessInterrupted({
@@ -58,9 +60,19 @@ const make = Effect.gen(function* () {
   const processThreadDeleted = Effect.fn("processThreadDeleted")(function* (
     event: ThreadDeletedEvent,
   ) {
-    const { threadId } = event.payload;
+    const { threadId, vcsWorkspace, workspaceRoot } = event.payload;
     yield* stopProviderSession(threadId);
     yield* closeThreadTerminals(threadId);
+    if (vcsWorkspace) {
+      yield* logCleanupCauseUnlessInterrupted({
+        effect: vcsWorkspaceService.removeThreadWorkspace({
+          cwd: workspaceRoot ?? vcsWorkspace.rootPath,
+          workspace: vcsWorkspace,
+        }),
+        message: "thread deletion cleanup skipped VCS workspace removal",
+        threadId,
+      });
+    }
   });
 
   const processThreadDeletedSafely = (event: ThreadDeletedEvent) =>

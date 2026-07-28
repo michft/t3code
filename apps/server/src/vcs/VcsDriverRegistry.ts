@@ -8,8 +8,11 @@ import * as Layer from "effect/Layer";
 import type { VcsDriverKind, VcsError, VcsRepositoryIdentity } from "@t3tools/contracts";
 import { VcsUnsupportedOperationError } from "@t3tools/contracts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
+import * as JjProcess from "./JjProcess.ts";
+import * as JjVcsDriver from "./JjVcsDriver.ts";
 import * as VcsProjectConfig from "./VcsProjectConfig.ts";
 import * as VcsDriver from "./VcsDriver.ts";
+import * as VcsProcess from "./VcsProcess.ts";
 
 const DETECTION_CACHE_CAPACITY = 2_048;
 const DETECTION_CACHE_TTL = Duration.seconds(2);
@@ -63,8 +66,10 @@ function parseDetectionCacheKey(key: string): {
 export const make = Effect.gen(function* () {
   const projectConfig = yield* VcsProjectConfig.VcsProjectConfig;
   const git = yield* GitVcsDriver.makeVcsDriver;
+  const jj = yield* JjVcsDriver.make;
   const drivers: Partial<Record<VcsDriverKind, VcsDriver.VcsDriver["Service"]>> = {
     git,
+    jj,
   };
 
   const get: VcsDriverRegistry["Service"]["get"] = (kind) => {
@@ -108,6 +113,10 @@ export const make = Effect.gen(function* () {
       return yield* detectWithDriver(requestedKind, driver, input.cwd);
     }
 
+    const jjRepository = yield* detectWithDriver("jj", jj, input.cwd);
+    if (jjRepository) {
+      return jjRepository;
+    }
     return yield* detectWithDriver("git", git, input.cwd);
   });
 
@@ -154,4 +163,6 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(VcsDriverRegistry, make).pipe(
   Layer.provide(VcsProjectConfig.layer),
+  Layer.provide(JjProcess.layer),
+  Layer.provide(VcsProcess.layer),
 );

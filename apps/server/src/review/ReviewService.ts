@@ -14,8 +14,8 @@ import {
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility.ts";
 
 export class ReviewService extends Context.Service<
   ReviewService,
@@ -31,7 +31,7 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
-  const git = yield* GitVcsDriver.GitVcsDriver;
+  const git = (yield* VcsGitProviderCompatibility.VcsGitProviderCompatibility).git;
 
   const canonicalizePath = (value: string) => {
     const resolvedPath = path.resolve(value);

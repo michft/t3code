@@ -401,6 +401,12 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     supportsBookmarks: false,
     supportsAtomicSnapshot: false,
     supportsPushDefaultRemote: true,
+    supportsWorkspaces: true,
+    supportsNamedPublishRefs: true,
+    supportsSelectedFileFinalize: true,
+    supportsThreadLocalRestore: true,
+    supportsDefaultRemotePush: true,
+    supportsGitProviderCompatibility: true,
     ignoreClassifier: "native" as const,
   };
 
@@ -543,6 +549,29 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     },
   );
 
+  const addRemote: VcsDriver.VcsDriver["Service"]["addRemote"] = (input) =>
+    gitCommand(vcsProcess, "GitVcsDriver.addRemote", input.cwd, [
+      "remote",
+      "add",
+      input.name,
+      input.url,
+    ]).pipe(Effect.asVoid);
+
+  const removeRemote: VcsDriver.VcsDriver["Service"]["removeRemote"] = (input) =>
+    gitCommand(vcsProcess, "GitVcsDriver.removeRemote", input.cwd, [
+      "remote",
+      "remove",
+      input.name,
+    ]).pipe(Effect.asVoid);
+
+  const resolveDefaultRemote: VcsDriver.VcsDriver["Service"]["resolveDefaultRemote"] = (cwd) =>
+    listRemotes(cwd).pipe(
+      Effect.map(
+        ({ remotes }) =>
+          remotes.find((remote) => remote.isPrimary)?.name ?? remotes[0]?.name ?? null,
+      ),
+    );
+
   const filterIgnoredPaths: VcsDriver.VcsDriver["Service"]["filterIgnoredPaths"] = Effect.fn(
     "filterIgnoredPaths",
   )(function* (cwd, relativePaths) {
@@ -595,6 +624,19 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       timeoutMs: 10_000,
       maxOutputBytes: 64 * 1024,
     }).pipe(Effect.asVoid);
+
+  const cloneRepository: VcsDriver.VcsDriver["Service"]["cloneRepository"] = (input) =>
+    vcsProcess
+      .run({
+        operation: "GitVcsDriver.cloneRepository",
+        command: "git",
+        args: ["clone", input.source, input.destination],
+        cwd: input.destination,
+        spawnCwd: globalThis.process.cwd(),
+        timeoutMs: 120_000,
+        maxOutputBytes: 1_000_000,
+      })
+      .pipe(Effect.asVoid);
 
   const resolveHeadCommit = (cwd: string) =>
     execute({
@@ -858,8 +900,12 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     isInsideWorkTree,
     listWorkspaceFiles,
     listRemotes,
+    addRemote,
+    removeRemote,
+    resolveDefaultRemote,
     filterIgnoredPaths,
     initRepository,
+    cloneRepository,
   };
 });
 

@@ -1,0 +1,297 @@
+name: Fork Desktop Release
+
+on:
+  push:
+    tags:
+      - "fork-v*-nightly.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Nightly version, for example 0.0.30-nightly.20260728.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_NIGHTLY_TAG: v0.0.30-nightly.20260728.930
+  UPSTREAM_NIGHTLY_SHA: dd5ea324885aec60887a766b91fb7f34192b4b93
+
+jobs:
+  preflight:
+    name: Validate clean fork release
+    if: github.repository == 'michft/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      name: ${{ steps.release.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.0.0
+        with:
+          node-version-file: package.json
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - id: release
+        name: Resolve release identity
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#fork-v}"
+          else
+            version="${REQUESTED_VERSION#fork-v}"
+            version="${version#v}"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+$ ]]; then
+            echo "Invalid fork nightly version: $version" >&2
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$UPSTREAM_NIGHTLY_SHA" "$GITHUB_SHA"; then
+            echo "$GITHUB_SHA does not contain $UPSTREAM_NIGHTLY_TAG ($UPSTREAM_NIGHTLY_SHA)." >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=fork-v$version" >> "$GITHUB_OUTPUT"
+          echo "name=T3 Code JJ Nightly $version" >> "$GITHUB_OUTPUT"
+
+      - name: Check
+        run: pnpm exec vp check
+
+      - name: Typecheck
+        run: pnpm exec vp run typecheck
+
+      - name: Test
+        run: pnpm exec vp run test
+
+      - name: Release smoke test
+        run: pnpm exec vp run release:smoke
+
+  build:
+    name: Build macOS ${{ matrix.arch }}
+    needs: preflight
+    runs-on: macos-14
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.0.0
+        with:
+          node-version-file: package.json
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Align package versions
+        run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
+
+      - name: Build unsigned JJ Nightly artifact
+        shell: bash
+        env:
+          T3CODE_DESKTOP_DISTRIBUTION: jj-nightly
+          T3CODE_DESKTOP_APP_ID: com.michft.t3code.jj-nightly
+          T3CODE_DESKTOP_PRODUCT_NAME: T3 Code (JJ Nightly)
+          T3CODE_DESKTOP_ARTIFACT_PREFIX: T3-Code-JJ
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: michft/t3code
+        run: |
+          set -euo pipefail
+          pnpm exec vp run dist:desktop:artifact \
+            --platform mac \
+            --target dmg \
+            --arch "${{ matrix.arch }}" \
+            --build-version "${{ needs.preflight.outputs.version }}" \
+            --verbose
+
+      - name: Verify packaged fork identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="$(find release -type d -name 'T3 Code (JJ Nightly).app' -print -quit)"
+          if [[ -z "$app_path" ]]; then
+            echo "Packaged JJ Nightly app was not found." >&2
+            exit 1
+          fi
+
+          bundle_id="$(plutil -extract CFBundleIdentifier raw "$app_path/Contents/Info.plist")"
+          if [[ "$bundle_id" != "com.michft.t3code.jj-nightly" ]]; then
+            echo "Unexpected bundle id: $bundle_id" >&2
+            exit 1
+          fi
+
+          update_config="$app_path/Contents/Resources/app-update.yml"
+          grep -Fq 'owner: michft' "$update_config"
+          grep -Fq 'repo: t3code' "$update_config"
+          grep -Fq 'jj-nightly' "$app_path/Contents/Resources/app.asar"
+
+      - name: Collect release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-publish
+          shopt -s nullglob
+
+          for pattern in \
+            "release/*.dmg" \
+            "release/*.zip" \
+            "release/*.blockmap" \
+            "release/nightly*.yml"; do
+            for file in $pattern; do
+              cp "$file" release-publish/
+            done
+          done
+
+          if [[ "${{ matrix.arch }}" == "x64" ]]; then
+            for manifest in release-publish/*-mac.yml; do
+              mv "$manifest" "${manifest%.yml}-x64.yml"
+            done
+          fi
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-mac-${{ matrix.arch }}
+          path: release-publish/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub prerelease
+    needs: [preflight, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.0.0
+        with:
+          node-version-file: package.json
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install release script dependencies
+        run: pnpm install --frozen-lockfile --filter=@t3tools/scripts...
+
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: desktop-mac-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Merge macOS updater manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=false
+          for x64_manifest in release-assets/*-mac-x64.yml; do
+            found=true
+            arm64_manifest="${x64_manifest%-x64.yml}.yml"
+            test -f "$arm64_manifest"
+            node scripts/merge-update-manifests.ts --platform mac "$arm64_manifest" "$x64_manifest"
+            rm "$x64_manifest"
+          done
+          if [[ "$found" != true ]]; then
+            echo "No x64 macOS updater manifest found." >&2
+            exit 1
+          fi
+
+      - name: Write checksums and provenance
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg version "$RELEASE_VERSION" \
+            --arg tag "$RELEASE_TAG" \
+            --arg forkCommit "$GITHUB_SHA" \
+            --arg upstreamTag "$UPSTREAM_NIGHTLY_TAG" \
+            --arg upstreamCommit "$UPSTREAM_NIGHTLY_SHA" \
+            '{version: $version, tag: $tag, forkCommit: $forkCommit, upstreamNightly: {tag: $upstreamTag, commit: $upstreamCommit}, distribution: "jj-nightly", appId: "com.michft.t3code.jj-nightly", stateHome: "~/.t3-jj", signed: false}' \
+            > release-assets/release-info.json
+          (cd release-assets && sha256sum -- * > SHA256SUMS.txt)
+
+          cat > release-notes.md <<EOF
+          JJ-enabled community Nightly built from upstream **${UPSTREAM_NIGHTLY_TAG}**.
+
+          - Fork commit: \`${GITHUB_SHA}\`
+          - Upstream commit: \`${UPSTREAM_NIGHTLY_SHA}\`
+          - App: **T3 Code (JJ Nightly)**
+          - State: \`~/.t3-jj\` (isolated from official \`~/.t3\`)
+          - Updater: \`michft/t3code\`
+
+          This build is unsigned. Verify \`SHA256SUMS.txt\` before installing.
+          EOF
+
+      - name: Create or update prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_NAME: ${{ needs.preflight.outputs.name }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_NAME" \
+              --notes-file release-notes.md \
+              --prerelease
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_NAME" \
+              --notes-file release-notes.md \
+              --prerelease
+          fi
+
+          gh release upload "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber \
+            "${assets[@]}"

@@ -1,6 +1,8 @@
 import {
   type GitActionRequestInput,
   buildMenuItems,
+  capitalizeVcsTerm,
+  getVcsPresentation,
   getGitActionDisabledReason,
   requiresDefaultBranchConfirmation,
 } from "@t3tools/client-runtime/state/vcs";
@@ -67,7 +69,10 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
       : null,
   );
 
-  const currentBranchLabel = gitStatus.data?.refName ?? selectedThread?.branch ?? "Detached HEAD";
+  const vcsPresentation = getVcsPresentation(gitStatus.data?.driverKind);
+  const refsLabel = capitalizeVcsTerm(vcsPresentation.refPlural);
+  const currentBranchLabel =
+    gitStatus.data?.refName ?? selectedThread?.branch ?? vcsPresentation.currentRefFallback;
   const currentStatusSummary = statusSummary(gitStatus.data);
   const currentWorktreePath = selectedThreadWorktreePath;
   const gitOperationLabel = gitState.gitOperationLabel;
@@ -77,8 +82,16 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
   const isDefaultRef = gitStatus.data?.isDefaultRef ?? false;
 
   const menuItems = useMemo(
-    () => (isRepo ? buildMenuItems(gitStatus.data, busy, hasPrimaryRemote) : []),
-    [busy, gitStatus.data, hasPrimaryRemote, isRepo],
+    () =>
+      isRepo
+        ? buildMenuItems(
+            gitStatus.data,
+            busy,
+            hasPrimaryRemote,
+            selectedThread?.vcsWorkspace?.publishRef ?? null,
+          )
+        : [],
+    [busy, gitStatus.data, hasPrimaryRemote, isRepo, selectedThread?.vcsWorkspace?.publishRef],
   );
 
   const sheetMenuItems = useMemo(
@@ -153,7 +166,7 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
         await openExistingPr();
         return;
       }
-      if (item.dialogAction === "commit") {
+      if (item.dialogAction === "commit" || item.dialogAction === "commit_push") {
         navigation.navigate("GitCommit", {
           environmentId: String(environmentId),
           threadId: String(threadId),
@@ -179,7 +192,10 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
       if (status == null) {
         return undefined;
       }
-      if (item.dialogAction === "commit" && status.hasWorkingTreeChanges) {
+      if (
+        (item.dialogAction === "commit" || item.dialogAction === "commit_push") &&
+        status.hasWorkingTreeChanges
+      ) {
         const fileCount = status.workingTree?.files.length ?? 0;
         return `${fileCount} file${fileCount === 1 ? "" : "s"} changed`;
       }
@@ -260,7 +276,7 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
         <SheetListRow
           icon="text.bubble"
           title="Review changes"
-          subtitle="Inspect turn diffs, worktree changes, and base branch diff"
+          subtitle={`Inspect turn diffs, ${vcsPresentation.workspaceSingular} changes, and base ${vcsPresentation.refSingular} diff`}
           disabled={busy || !isRepo}
           onPress={() => {
             const params = { environmentId, threadId };
@@ -274,8 +290,8 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
         <View className="ml-12 h-px bg-border" />
         <SheetListRow
           icon="point.topleft.down.curvedto.point.bottomright.up"
-          title="Branches & worktrees"
-          subtitle="Switch branch, create branch, or move to a worktree"
+          title={`${refsLabel} & ${vcsPresentation.workspacePlural}`}
+          subtitle={`Switch ${vcsPresentation.refSingular}, create ${vcsPresentation.refSingular}, or move to a ${vcsPresentation.workspaceSingular}`}
           disabled={busy || !isRepo}
           onPress={() =>
             navigation.navigate("GitBranches", {
@@ -286,7 +302,12 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
         />
       </View>
 
-      {currentWorktreePath ? <MetaCard label="Worktree" value={currentWorktreePath} /> : null}
+      {currentWorktreePath ? (
+        <MetaCard
+          label={capitalizeVcsTerm(vcsPresentation.workspaceSingular)}
+          value={currentWorktreePath}
+        />
+      ) : null}
     </ScrollView>
   );
 

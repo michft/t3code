@@ -3,6 +3,7 @@ import {
   type GitRunStackedActionResult,
   type ProjectScript,
   ThreadId,
+  type VcsNamedRef,
   type VcsStatusResult,
 } from "@t3tools/contracts";
 import {
@@ -83,6 +84,7 @@ export type ThreadGitMenuProps = {
   readonly threadId: ThreadId | string;
   readonly currentBranch: string | null;
   readonly gitStatus: VcsStatusResult | null;
+  readonly publishRef: VcsNamedRef | null;
   readonly gitOperationLabel: string | null;
   readonly onOpenFilesInspector?: () => void;
   readonly onOpenGitInspector?: () => void;
@@ -121,14 +123,14 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
   const quickAction = useMemo(
     () =>
       isRepo
-        ? resolveQuickAction(gitStatus, busy, isDefaultRef, hasPrimaryRemote)
+        ? resolveQuickAction(gitStatus, busy, isDefaultRef, hasPrimaryRemote, props.publishRef)
         : {
             label: "Git unavailable",
             disabled: true,
             kind: "show_hint" as const,
             hint: "This workspace is not a git repository.",
           },
-    [busy, gitStatus, hasPrimaryRemote, isDefaultRef, isRepo],
+    [busy, gitStatus, hasPrimaryRemote, isDefaultRef, isRepo, props.publishRef],
   );
 
   const quickActionHint = quickAction.disabled

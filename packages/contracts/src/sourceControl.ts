@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { VcsDriverKind } from "./vcs.ts";
+import { VcsDriverKind, VcsNamedRef } from "./vcs.ts";
 
 export const SourceControlProviderKind = Schema.Literals([
   "github",
@@ -87,6 +87,7 @@ export const SourceControlPublishRepositoryInput = Schema.Struct({
   visibility: SourceControlRepositoryVisibility,
   remoteName: Schema.optional(TrimmedNonEmptyString),
   protocol: Schema.optional(SourceControlCloneProtocol),
+  publishRef: Schema.optional(VcsNamedRef),
 });
 export type SourceControlPublishRepositoryInput = typeof SourceControlPublishRepositoryInput.Type;
 
@@ -100,10 +101,15 @@ export const SourceControlPublishRepositoryResult = Schema.Struct({
   branch: TrimmedNonEmptyString,
   upstreamBranch: Schema.optional(TrimmedNonEmptyString),
   status: SourceControlPublishStatus,
+  publishRef: Schema.optional(VcsNamedRef),
 });
 export type SourceControlPublishRepositoryResult = typeof SourceControlPublishRepositoryResult.Type;
 
-export const SourceControlDiscoveryStatus = Schema.Literals(["available", "missing"]);
+export const SourceControlDiscoveryStatus = Schema.Literals([
+  "available",
+  "missing",
+  "unsupported",
+]);
 export type SourceControlDiscoveryStatus = typeof SourceControlDiscoveryStatus.Type;
 
 export const SourceControlProviderAuthStatus = Schema.Literals([
