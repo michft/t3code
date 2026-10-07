@@ -421,8 +421,8 @@ export function useSelectedThreadGitActions() {
           }
 
           if (
-            (result.value.commit.workspaceRevision || result.value.commit.publishRef) &&
-            thread.vcsWorkspace
+            thread.vcsWorkspace &&
+            (result.value.commit.workspaceRevision || result.value.commit.publishRef)
           ) {
             const syncResult = await syncSelectedThreadBranchState({
               thread,

@@ -15,7 +15,7 @@ export class VcsGitProviderCompatibility extends Context.Service<
   }
 >()("t3/vcs/VcsGitProviderCompatibility") {}
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   return VcsGitProviderCompatibility.of({
     git: yield* GitVcsDriver.GitVcsDriver,
   });

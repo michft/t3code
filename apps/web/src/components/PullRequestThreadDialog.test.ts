@@ -87,7 +87,7 @@ vi.mock("~/state/git", () => ({
   },
 }));
 vi.mock("~/lib/utils", () => ({ cn: () => "" }));
-vi.mock("~/state/query", () => ({ useEnvironmentQuery: () => ({ data: null }) }));
+vi.mock("~/state/query", () => ({ useEnvironmentQuery: () => ({ data: { driverKind: "git" } }) }));
 vi.mock("~/state/vcs", () => ({
   vcsEnvironment: { status: () => null },
   vcsActionManager: {

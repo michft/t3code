@@ -173,7 +173,7 @@ export const JJ_CHANGED_FILE_JSON_TEMPLATE = [
 
 export const JJ_BOOKMARK_JSON_TEMPLATE = 'json(self) ++ "\\n"';
 export const JJ_WORKSPACE_JSON_TEMPLATE = 'json(self) ++ "\\n"';
-export const JJ_OPERATION_JSON_TEMPLATE = 'json(self) ++ "\\n"';
+const JJ_OPERATION_JSON_TEMPLATE = 'json(self) ++ "\\n"';
 
 const JJ_MACHINE_GLOBAL_ARGS = ["--color=never", "--no-pager"] as const;
 

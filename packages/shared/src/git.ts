@@ -367,7 +367,7 @@ export function mergeGitStatusParts(
   };
 }
 
-export function toRemoteStatusPart(status: VcsStatusResult): VcsStatusRemoteResult {
+function toRemoteStatusPart(status: VcsStatusResult): VcsStatusRemoteResult {
   return {
     ...(status.trackedRemote === undefined ? {} : { trackedRemote: status.trackedRemote }),
     hasUpstream: status.hasUpstream,
@@ -380,7 +380,7 @@ export function toRemoteStatusPart(status: VcsStatusResult): VcsStatusRemoteResu
   };
 }
 
-export function toLocalStatusPart(status: VcsStatusResult): VcsStatusLocalResult {
+function toLocalStatusPart(status: VcsStatusResult): VcsStatusLocalResult {
   return {
     isRepo: status.isRepo,
     ...(status.driverKind === undefined ? {} : { driverKind: status.driverKind }),

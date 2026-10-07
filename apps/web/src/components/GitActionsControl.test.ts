@@ -49,7 +49,9 @@ vi.mock("~/state/session", () => ({
 }));
 vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: (command: unknown) => command }));
 vi.mock("~/state/server", () => ({ serverEnvironment: { configValueAtom: () => null } }));
-vi.mock("~/state/sourceControl", () => ({ sourceControlEnvironment: {} }));
+vi.mock("~/state/sourceControl", () => ({
+  sourceControlEnvironment: { discovery: () => "discovery" },
+}));
 vi.mock("~/state/vcs", () => ({
   vcsEnvironment: { status: () => null },
   vcsActionManager: { stateAtom: () => "vcs-state" },
@@ -73,15 +75,19 @@ vi.mock("~/state/threads", () => ({
   },
 }));
 vi.mock("~/state/query", () => ({
-  useEnvironmentQuery: () => ({
-    data: {
-      isRepo: true,
-      refName: "main",
-      isDefaultRef: false,
-      hasPrimaryRemote: true,
-      hasWorkingTreeChanges: true,
-      workingTree: { files: [{ path: "file.ts", status: "modified" }] },
-    },
+  useEnvironmentQuery: (query: unknown) => ({
+    data:
+      query === "discovery"
+        ? { versionControlSystems: [] }
+        : {
+            isRepo: true,
+            driverKind: "git",
+            refName: "main",
+            isDefaultRef: false,
+            hasPrimaryRemote: true,
+            hasWorkingTreeChanges: true,
+            workingTree: { files: [{ path: "file.ts", status: "modified" }] },
+          },
     error: null,
   }),
 }));

@@ -274,7 +274,6 @@ import {
   DeviceSession,
   DeviceShutdownInput,
 } from "./device.ts";
-import {} from "./previewAutomation.ts";
 import {
   ServerConfigStreamEvent,
   DesktopUpdateCommitInput,
@@ -1371,42 +1370,42 @@ const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
   error: Schema.Union([VcsError, EnvironmentAuthorizationError]),
 });
 
-export const WsGitPullLegacyRpc = Rpc.make(WS_METHODS.gitPullLegacy, {
+const WsGitPullLegacyRpc = Rpc.make(WS_METHODS.gitPullLegacy, {
   payload: VcsPullInput,
   success: VcsPullResult,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
-export const WsGitRefreshStatusLegacyRpc = Rpc.make(WS_METHODS.gitRefreshStatusLegacy, {
+const WsGitRefreshStatusLegacyRpc = Rpc.make(WS_METHODS.gitRefreshStatusLegacy, {
   payload: VcsStatusInput,
   success: VcsStatusResult,
   error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
 });
 
-export const WsGitListRefsLegacyRpc = Rpc.make(WS_METHODS.gitListRefsLegacy, {
+const WsGitListRefsLegacyRpc = Rpc.make(WS_METHODS.gitListRefsLegacy, {
   payload: VcsListRefsInput,
   success: VcsListRefsResult,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
-export const WsGitCreateWorktreeLegacyRpc = Rpc.make(WS_METHODS.gitCreateWorktreeLegacy, {
+const WsGitCreateWorktreeLegacyRpc = Rpc.make(WS_METHODS.gitCreateWorktreeLegacy, {
   payload: VcsCreateWorktreeInput,
   success: VcsCreateWorktreeResult,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
-export const WsGitRemoveWorktreeLegacyRpc = Rpc.make(WS_METHODS.gitRemoveWorktreeLegacy, {
+const WsGitRemoveWorktreeLegacyRpc = Rpc.make(WS_METHODS.gitRemoveWorktreeLegacy, {
   payload: VcsRemoveWorktreeInput,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
-export const WsGitCreateRefLegacyRpc = Rpc.make(WS_METHODS.gitCreateRefLegacy, {
+const WsGitCreateRefLegacyRpc = Rpc.make(WS_METHODS.gitCreateRefLegacy, {
   payload: VcsCreateRefInput,
   success: VcsCreateRefResult,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
-export const WsGitSwitchRefLegacyRpc = Rpc.make(WS_METHODS.gitSwitchRefLegacy, {
+const WsGitSwitchRefLegacyRpc = Rpc.make(WS_METHODS.gitSwitchRefLegacy, {
   payload: VcsSwitchRefInput,
   success: VcsSwitchRefResult,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),

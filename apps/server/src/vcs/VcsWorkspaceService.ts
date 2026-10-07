@@ -168,7 +168,7 @@ function sameRevision(left: VcsRevision | null | undefined, right: VcsRevision |
 
 const isVcsWorkflowError = Schema.is(VcsWorkflowError);
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -221,22 +221,24 @@ export const make = Effect.gen(function* () {
     cwd: string,
   ) {
     return yield* readJjRevision(driver, cwd, "@").pipe(
-      Effect.catchTag("VcsProcessExitError", (cause) => {
-        if (cause.failureKind !== "stale-workspace") {
-          return Effect.fail(cause);
-        }
-        return Effect.logInfo("repairing stale Jujutsu thread workspace", { cwd }).pipe(
-          Effect.andThen(
-            driver.execute({
-              operation: "VcsWorkspaceService.updateStale",
-              cwd,
-              args: ["workspace", "update-stale"],
-              timeoutMs: 20_000,
-              maxOutputBytes: 256 * 1024,
-            }),
-          ),
-          Effect.andThen(readJjRevision(driver, cwd, "@")),
-        );
+      Effect.catchTags({
+        VcsProcessExitError: (cause) => {
+          if (cause.failureKind !== "stale-workspace") {
+            return Effect.fail(cause);
+          }
+          return Effect.logInfo("repairing stale Jujutsu thread workspace", { cwd }).pipe(
+            Effect.andThen(
+              driver.execute({
+                operation: "VcsWorkspaceService.updateStale",
+                cwd,
+                args: ["workspace", "update-stale"],
+                timeoutMs: 20_000,
+                maxOutputBytes: 256 * 1024,
+              }),
+            ),
+            Effect.andThen(readJjRevision(driver, cwd, "@")),
+          );
+        },
       }),
     );
   });

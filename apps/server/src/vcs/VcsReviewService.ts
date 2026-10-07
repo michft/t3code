@@ -70,7 +70,7 @@ function errorDetail(cause: unknown): string {
 
 const isVcsWorkflowError = Schema.is(VcsWorkflowError);
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

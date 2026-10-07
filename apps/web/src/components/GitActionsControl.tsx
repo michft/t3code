@@ -1208,9 +1208,9 @@ export default function GitActionsControl({
   const syncThreadAfterSourceControlAction = useCallback(
     (result: GitRunStackedActionResult) => {
       if (
-        (result.commit.workspaceRevision || result.commit.publishRef) &&
         activeServerThread?.vcsWorkspace &&
-        activeThreadRef
+        activeThreadRef &&
+        (result.commit.workspaceRevision || result.commit.publishRef)
       ) {
         void updateThreadMetadata({
           environmentId: activeThreadRef.environmentId,
