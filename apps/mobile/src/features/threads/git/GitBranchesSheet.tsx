@@ -1,4 +1,5 @@
 import { sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { capitalizeVcsTerm, getVcsPresentation } from "@t3tools/client-runtime/state/vcs";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useState } from "react";
 import { Platform, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
@@ -41,7 +42,10 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
       : null,
   );
 
-  const currentBranchLabel = gitStatus.data?.refName ?? selectedThread?.branch ?? "Detached HEAD";
+  const vcsPresentation = getVcsPresentation(gitStatus.data?.driverKind);
+  const refsLabel = capitalizeVcsTerm(vcsPresentation.refPlural);
+  const currentBranchLabel =
+    gitStatus.data?.refName ?? selectedThread?.branch ?? vcsPresentation.currentRefFallback;
   const currentWorktreePath = selectedThreadWorktreePath;
   const availableBranches = gitState.selectedThreadBranches;
   const branchesLoading = gitState.selectedThreadBranchesLoading;
@@ -49,7 +53,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
 
   const [newBranchName, setNewBranchName] = useState("");
   const [worktreeBaseBranch, setWorktreeBaseBranch] = useState(
-    currentBranchLabel === "Detached HEAD" ? "main" : currentBranchLabel,
+    currentBranchLabel === vcsPresentation.currentRefFallback ? "main" : currentBranchLabel,
   );
   const [worktreeBranchName, setWorktreeBranchName] = useState("");
 

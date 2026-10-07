@@ -865,6 +865,7 @@ function ThreadRouteContent(
         : undefined,
     currentBranch: selectedThread?.branch ?? null,
     gitStatus: gitStatus.data,
+    publishRef: selectedThread?.vcsWorkspace?.publishRef ?? null,
     gitOperationLabel: gitState.gitOperationLabel,
     canOpenTerminal:
       Boolean(selectedThreadProject?.workspaceRoot) && (canReadTerminal || canOperateTerminal),

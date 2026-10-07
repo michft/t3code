@@ -14,6 +14,7 @@ import { GitCommandError } from "@t3tools/contracts";
 import * as BitbucketApi from "./BitbucketApi.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import type * as VcsDriver from "../vcs/VcsDriver.ts";
 
@@ -150,7 +151,11 @@ function makeLayer(input: {
         resolve,
       }),
     ),
-    Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)(git)),
+    Layer.provide(
+      Layer.mock(VcsGitProviderCompatibility.VcsGitProviderCompatibility)({
+        git: git as GitVcsDriver.GitVcsDriver["Service"],
+      }),
+    ),
     Layer.provide(
       ConfigProvider.layer(
         ConfigProvider.fromEnv({

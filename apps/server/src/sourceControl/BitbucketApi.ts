@@ -31,7 +31,7 @@ import {
 import { collectUint8StreamText } from "../stream/collectUint8StreamText.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import { retryAtFromHeader } from "./SourceControlRateLimit.ts";
 
@@ -660,7 +660,7 @@ export const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const httpClient = yield* HttpClient.HttpClient;
   const fileSystem = yield* FileSystem.FileSystem;
-  const git = yield* GitVcsDriver.GitVcsDriver;
+  const git = (yield* VcsGitProviderCompatibility.VcsGitProviderCompatibility).git;
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
 
   const apiUrl = (path: string) => `${config.baseUrl.replace(/\/+$/u, "")}${path}`;
@@ -1090,8 +1090,8 @@ export const make = Effect.gen(function* () {
         Effect.map(defaultChangeRequestTargetBranch),
       ),
     // Bitbucket Cloud pull requests are Git-backed and Bitbucket does not provide
-    // an official checkout CLI. This provider-local path uses GitVcsDriver as a
-    // narrow escape hatch to materialize Bitbucket PR refs. Do not generalize this
+    // an official checkout CLI. This provider-local path uses the explicit Git
+    // compatibility adapter to materialize Bitbucket PR refs. Do not generalize this
     // as the source-control provider model: if we support non-Git-compatible
     // hosting providers or native JJ/Sapling checkout flows, move this into a
     // VCS-specific change-request checkout capability.

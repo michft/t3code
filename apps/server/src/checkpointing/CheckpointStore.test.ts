@@ -114,6 +114,18 @@ it.layer(layerTest)("CheckpointStore.layer", (it) => {
         expect(yield* checkpointStore.isGitRepository(tmp)).toBe(true);
       }),
     );
+
+    it.effect("returns true when a Jujutsu repository supports checkpoints", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
+        const jj = yield* registry.get("jj");
+        yield* jj.initRepository({ cwd: tmp, kind: "jj" });
+        const checkpointStore = yield* CheckpointStore.CheckpointStore;
+
+        expect(yield* checkpointStore.isGitRepository(tmp)).toBe(true);
+      }),
+    );
   });
 
   it.effect("detects a nested workspace without its own .git entry", () =>

@@ -26,8 +26,10 @@ import {
   parseGitCloneProgressLine,
   type GitCloneProgressLine,
 } from "../project/gitCloneProgress.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as BitbucketApi from "./BitbucketApi.ts";
+import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility.ts";
+import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as VcsSyncService from "../vcs/VcsSyncService.ts";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
 const isSourceControlRepositoryError = Schema.is(SourceControlRepositoryError);
 const isSourceControlProviderError = Schema.is(SourceControlProviderError);
@@ -166,7 +168,9 @@ function selectRemoteUrl(
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
-  const git = yield* GitVcsDriver.GitVcsDriver;
+  const git = (yield* VcsGitProviderCompatibility.VcsGitProviderCompatibility).git;
+  const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
+  const vcsSync = yield* VcsSyncService.VcsSyncService;
   const path = yield* Path.Path;
   const providers = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
 
@@ -413,6 +417,45 @@ export const make = Effect.gen(function* () {
         visibility: input.visibility,
       });
       const remoteUrl = selectRemoteUrl(urls, input.protocol);
+      const handle = yield* vcsRegistry.resolve({ cwd: input.cwd });
+      if (handle.kind === "jj") {
+        const preferredRemoteName = input.remoteName?.trim() || "origin";
+        const remotes = yield* handle.driver.listRemotes(input.cwd);
+        const matchingRemote = remotes.remotes.find((remote) => remote.url === remoteUrl);
+        const usedNames = new Set(remotes.remotes.map((remote) => remote.name));
+        let remoteName = matchingRemote?.name ?? preferredRemoteName;
+        if (!matchingRemote) {
+          let suffix = 2;
+          while (usedNames.has(remoteName)) {
+            remoteName = `${preferredRemoteName}-${suffix}`;
+            suffix += 1;
+          }
+          yield* handle.driver.addRemote({ cwd: input.cwd, name: remoteName, url: remoteUrl });
+        }
+        if (!input.publishRef) {
+          return {
+            repository: toRepositoryInfo(providerKind, urls),
+            remoteName,
+            remoteUrl,
+            branch: "main",
+            status: "remote_added" as const,
+          };
+        }
+        const published = yield* vcsSync.publish({
+          cwd: input.cwd,
+          remoteName,
+          publishRef: input.publishRef,
+        });
+        return {
+          repository: toRepositoryInfo(providerKind, urls),
+          remoteName,
+          remoteUrl,
+          branch: published.publishRef.name,
+          upstreamBranch: `${remoteName}/${published.publishRef.name}`,
+          status: "pushed" as const,
+          publishRef: published.publishRef,
+        };
+      }
       const remoteName = yield* git.ensureRemote({
         cwd: input.cwd,
         preferredName: input.remoteName?.trim() || "origin",

@@ -142,6 +142,12 @@ export class GitLabCliCommandError extends Schema.TaggedError<GitLabCliCommandEr
           case "rate-limited":
             return new GitLabCliRateLimitError({ ...context, cause });
           case "not-found":
+          case "not-repository":
+          case "stale-workspace":
+          case "unresolved-revision":
+          case "bookmark-conflict":
+          case "push-rejected":
+          case "invalid-ref":
           case "command-failed":
           case undefined:
             return new GitLabCliCommandError({ ...context, cause });
@@ -154,6 +160,7 @@ export class GitLabCliCommandError extends Schema.TaggedError<GitLabCliCommandEr
       VcsProcessMissingExitCodeError: (cause) => new GitLabCliCommandError({ ...context, cause }),
       VcsRepositoryDetectionError: (cause) => new GitLabCliCommandError({ ...context, cause }),
       VcsUnsupportedOperationError: (cause) => new GitLabCliCommandError({ ...context, cause }),
+      VcsWorkflowError: (cause) => new GitLabCliCommandError({ ...context, cause }),
     });
   }
 }

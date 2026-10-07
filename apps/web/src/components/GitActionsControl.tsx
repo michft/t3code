@@ -9,6 +9,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { getVcsPresentation } from "@t3tools/client-runtime/state/vcs";
 import type {
   GitRunStackedActionResult,
   GitStackedAction,
@@ -17,6 +18,7 @@ import type {
   SourceControlProviderKind,
   SourceControlPublishRepositoryResult,
   SourceControlRepositoryVisibility,
+  VcsNamedRef,
   VcsStatusResult,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -50,6 +52,7 @@ import {
   GitHubIcon,
   GitLabIcon,
   ForgejoIcon,
+  JujutsuIcon,
 } from "~/components/Icons";
 import { RadioGroup } from "~/components/ui/radio-group";
 import { Spinner } from "~/components/ui/spinner";
@@ -353,8 +356,7 @@ function getMenuActionDisabledReason({
   return `Create ${terminology.singular} is currently unavailable.`;
 }
 
-const COMMIT_DIALOG_TITLE = "Commit changes";
-const COMMIT_DIALOG_DESCRIPTION =
+const GIT_COMMIT_DIALOG_DESCRIPTION =
   "Review and confirm your commit. Leave the message blank to auto-generate one.";
 
 function GitActionItemIcon({
@@ -527,6 +529,8 @@ interface PublishRepositoryDialogProps {
   /** Thread the dialog was opened from, so the new repository can open beside it. */
   readonly threadRef: ScopedThreadRef | null;
   readonly gitCwd: string;
+  readonly publishRef: VcsNamedRef | null;
+  readonly onPublishRef: (publishRef: VcsNamedRef) => void;
 }
 
 function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
@@ -663,6 +667,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
         visibility: publishVisibility,
         remoteName: publishRemoteName.trim() || "origin",
         protocol: publishProtocol,
+        ...(props.publishRef ? { publishRef: props.publishRef } : {}),
       });
 
       if (result._tag === "Failure") {
@@ -677,11 +682,16 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
         setPublishResult(result.value);
         setPublishWizardStep(2);
       });
+      if (result.value.publishRef) {
+        props.onPublishRef(result.value.publishRef);
+      }
     })();
   }, [
     canSubmitPublishRepository,
     props.environmentId,
     props.gitCwd,
+    props.publishRef,
+    props.onPublishRef,
     publishProtocol,
     publishProvider,
     publishRemoteName,
@@ -1125,6 +1135,18 @@ export default function GitActionsControl({
   );
   const vcsActionState = useAtomValue(vcsActionManager.stateAtom(sourceControlScope));
   const visibleInlineSuccess = inlineSuccess?.scopeKey === successScopeKey ? inlineSuccess : null;
+  const sourceControlDiscovery = useEnvironmentQuery(
+    activeEnvironmentId === null
+      ? null
+      : sourceControlEnvironment.discovery({
+          environmentId: activeEnvironmentId,
+          input: {},
+        }),
+  );
+  const jjAvailable =
+    sourceControlDiscovery.data?.versionControlSystems.some(
+      (item) => item.kind === "jj" && item.status === "available" && item.implemented,
+    ) ?? false;
   let runGitActionWithToast: (input: RunGitActionWithToastInput) => Promise<void>;
 
   useEffect(() => {
@@ -1183,8 +1205,28 @@ export default function GitActionsControl({
     ],
   );
 
-  const syncThreadBranchAfterGitAction = useCallback(
+  const syncThreadAfterSourceControlAction = useCallback(
     (result: GitRunStackedActionResult) => {
+      if (
+        (result.commit.workspaceRevision || result.commit.publishRef) &&
+        activeServerThread?.vcsWorkspace &&
+        activeThreadRef
+      ) {
+        void updateThreadMetadata({
+          environmentId: activeThreadRef.environmentId,
+          input: {
+            threadId: activeThreadRef.threadId,
+            vcsWorkspace: {
+              ...activeServerThread.vcsWorkspace,
+              workspaceRevision:
+                result.commit.workspaceRevision ??
+                activeServerThread.vcsWorkspace.workspaceRevision,
+              ...(result.commit.publishRef ? { publishRef: result.commit.publishRef } : {}),
+            },
+          },
+        });
+        return;
+      }
       const branchUpdate = resolveThreadBranchUpdate(result);
       if (!branchUpdate) {
         return;
@@ -1192,7 +1234,7 @@ export default function GitActionsControl({
 
       persistThreadBranchSync(branchUpdate.branch, true);
     },
-    [persistThreadBranchSync],
+    [activeServerThread, activeThreadRef, persistThreadBranchSync, updateThreadMetadata],
   );
 
   const gitStatusQuery = useEnvironmentQuery(
@@ -1212,7 +1254,12 @@ export default function GitActionsControl({
     [gitStatus?.sourceControlProvider],
   );
   const changeRequestTerminology = sourceControlPresentation.terminology;
-  const SourceControlIcon = sourceControlPresentation.Icon;
+  const isJjRepository = gitStatus?.driverKind === "jj";
+  const versionControlPresentation = getVcsPresentation(gitStatus?.driverKind);
+  const jjPublishRef = isJjRepository
+    ? (activeServerThread?.vcsWorkspace?.publishRef ?? null)
+    : null;
+  const SourceControlIcon = isJjRepository ? JujutsuIcon : sourceControlPresentation.Icon;
   // Default to true while loading so we don't flash init controls.
   const isRepo = gitStatus?.isRepo ?? true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
@@ -1226,6 +1273,7 @@ export default function GitActionsControl({
   const noneSelected = selectedFiles.length === 0;
 
   const initAction = useVcsInitAction(sourceControlScope);
+  const initJjAction = useVcsInitAction(sourceControlScope, "jj");
   const runImmediateGitAction = useGitStackedAction(sourceControlScope);
   const pullAction = useVcsPullAction(sourceControlScope);
   const isGitActionRunning = useSourceControlActionRunning(
@@ -1238,7 +1286,7 @@ export default function GitActionsControl({
     activeDraftThread.worktreePath === null;
 
   useEffect(() => {
-    if (isGitActionRunning || isSelectingWorktreeBase || activeServerThread) {
+    if (isJjRepository || isGitActionRunning || isSelectingWorktreeBase || activeServerThread) {
       return;
     }
 
@@ -1256,6 +1304,7 @@ export default function GitActionsControl({
     activeDraftThread?.branch,
     gitStatusForActions,
     isGitActionRunning,
+    isJjRepository,
     isSelectingWorktreeBase,
     persistThreadBranchSync,
   ]);
@@ -1265,13 +1314,19 @@ export default function GitActionsControl({
   }, [gitStatusForActions?.isDefaultRef]);
 
   const gitActionMenuItems = useMemo(
-    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasPrimaryRemote),
-    [gitStatusForActions, hasPrimaryRemote, isGitActionRunning],
+    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasPrimaryRemote, jjPublishRef),
+    [gitStatusForActions, hasPrimaryRemote, isGitActionRunning, jjPublishRef],
   );
   const quickAction = useMemo(
     () =>
-      resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultRef, hasPrimaryRemote),
-    [gitStatusForActions, hasPrimaryRemote, isDefaultRef, isGitActionRunning],
+      resolveQuickAction(
+        gitStatusForActions,
+        isGitActionRunning,
+        isDefaultRef,
+        hasPrimaryRemote,
+        jjPublishRef,
+      ),
+    [gitStatusForActions, hasPrimaryRemote, isDefaultRef, isGitActionRunning, jjPublishRef],
   );
   const quickActionDisabledReason = !canWriteSourceControl
     ? "This connection cannot change source control."
@@ -1386,6 +1441,7 @@ export default function GitActionsControl({
         // have no server thread yet, so there is nothing to link to.
         ...(activeServerThread ? { threadId: activeServerThread.id } : {}),
         ...(activeDraftThread ? { projectId: activeDraftThread.projectId } : {}),
+        ...(!featureBranch && jjPublishRef ? { publishRef: jjPublishRef } : {}),
       });
 
       if (result._tag === "Failure") {
@@ -1408,7 +1464,7 @@ export default function GitActionsControl({
       }
 
       const actionResult = result.value;
-      syncThreadBranchAfterGitAction(actionResult);
+      syncThreadAfterSourceControlAction(actionResult);
       if (isPanel) {
         setInlineSuccess({
           title: actionResult.toast.title,
@@ -1615,7 +1671,7 @@ export default function GitActionsControl({
     setExcludedFiles(new Set());
     setIsEditingFiles(false);
     void runGitActionWithToast({
-      action: "commit",
+      action: isJjRepository && jjPublishRef ? "commit_push" : "commit",
       ...(commitMessage ? { commitMessage } : {}),
       ...(!allSelected ? { filePaths: selectedFiles.map((f) => f.path) } : {}),
     });
@@ -1993,18 +2049,26 @@ export default function GitActionsControl({
       >
         <DialogPopup>
           <DialogHeader>
-            <DialogTitle>{COMMIT_DIALOG_TITLE}</DialogTitle>
-            <DialogDescription>{COMMIT_DIALOG_DESCRIPTION}</DialogDescription>
+            <DialogTitle>{isJjRepository ? "Finalize change" : "Commit changes"}</DialogTitle>
+            <DialogDescription>
+              {isJjRepository
+                ? "Review and finalize the working-copy change. Leave the message blank to auto-generate one."
+                : GIT_COMMIT_DIALOG_DESCRIPTION}
+            </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <div className="space-y-3 rounded-xl bg-zinc-25 p-3 text-sm ring-1 ring-black/5 dark:bg-white/[0.035] dark:ring-white/5">
               <div className="grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1">
-                <span className="text-muted-foreground">Branch</span>
+                <span className="text-muted-foreground">
+                  {isJjRepository ? "Workspace change" : "Branch"}
+                </span>
                 <span className="flex items-center justify-between gap-2">
                   <span className="font-medium">
-                    {gitStatusForActions?.refName ?? "(detached HEAD)"}
+                    {isJjRepository
+                      ? (gitStatusForActions?.workspaceRevision ?? "unknown")
+                      : (gitStatusForActions?.refName ?? "(detached HEAD)")}
                   </span>
-                  {isDefaultRef && <span className="text-right text-warning">Default branch</span>}
+                  {!isJjRepository && isDefaultRef && <span className="text-right text-warning">Default branch</span>}
                 </span>
               </div>
               <div className="space-y-1">
@@ -2115,7 +2179,7 @@ export default function GitActionsControl({
               </div>
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-medium">Commit message (optional)</p>
+              <p className="text-sm font-medium">{isJjRepository ? "Change message (optional)" : "Commit message (optional)"}</p>
               <Textarea
                 value={dialogCommitMessage}
                 onChange={(event) => setDialogCommitMessage(event.target.value)}
@@ -2143,14 +2207,14 @@ export default function GitActionsControl({
               disabled={!canChangeThreadBranch || noneSelected}
               onClick={runDialogActionOnNewBranch}
             >
-              Commit on new branch
+              {isJjRepository ? "Finalize with new bookmark" : "Commit on new branch"}
             </Button>
             <Button
               size="sm"
               disabled={!canWriteSourceControl || noneSelected}
               onClick={runDialogAction}
             >
-              Commit
+              {isJjRepository ? jjPublishRef ? "Finalize & publish" : "Finalize change" : "Commit"}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -2162,6 +2226,17 @@ export default function GitActionsControl({
         environmentId={activeEnvironmentId}
         threadRef={activeThreadRef}
         gitCwd={gitCwd}
+        publishRef={jjPublishRef}
+        onPublishRef={(publishRef) => {
+          if (!activeServerThread?.vcsWorkspace || !activeThreadRef) return;
+          void updateThreadMetadata({
+            environmentId: activeThreadRef.environmentId,
+            input: {
+              threadId: activeThreadRef.threadId,
+              vcsWorkspace: { ...activeServerThread.vcsWorkspace, publishRef },
+            },
+          });
+        }}
       />
 
       <Dialog

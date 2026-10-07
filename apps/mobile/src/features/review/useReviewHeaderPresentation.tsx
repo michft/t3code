@@ -46,6 +46,7 @@ export function useReviewHeaderPresentation(props: {
     environmentId: props.environmentId,
     threadId: props.threadId,
     currentBranch: selectedThread?.branch ?? null,
+    publishRef: selectedThread?.vcsWorkspace?.publishRef ?? null,
     gitStatus: gitStatusQuery.data,
     gitOperationLabel: gitState.gitOperationLabel,
     onPull: gitActions.onPullSelectedThreadBranch,

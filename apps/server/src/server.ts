@@ -97,6 +97,11 @@ import * as VcsProcess from "./vcs/VcsProcess.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
+import * as VcsChangeService from "./vcs/VcsChangeService.ts";
+import * as VcsSyncService from "./vcs/VcsSyncService.ts";
+import * as VcsReviewService from "./vcs/VcsReviewService.ts";
+import * as VcsWorkspaceService from "./vcs/VcsWorkspaceService.ts";
+import * as VcsGitProviderCompatibility from "./vcs/VcsGitProviderCompatibility.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
@@ -265,7 +270,13 @@ const layerPersistence = Layer.empty.pipe(Layer.provideMerge(SqlitePersistence.l
 
 const layerVcsDriverRegistry = VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer));
 
+const layerVcsGitProviderCompatibility = VcsGitProviderCompatibility.layer.pipe(Layer.provide(GitVcsDriver.layer));
+const layerVcsChange = VcsChangeService.layer.pipe(Layer.provideMerge(layerVcsDriverRegistry));
+const layerVcsSync = VcsSyncService.layer.pipe(Layer.provideMerge(layerVcsDriverRegistry));
+const layerVcsReview = VcsReviewService.layer.pipe(Layer.provideMerge(layerVcsDriverRegistry));
+
 const layerSourceControlProviderRegistry = SourceControlProviderRegistry.layer.pipe(
+  Layer.provideMerge(layerVcsGitProviderCompatibility),
   Layer.provide(
     Layer.mergeAll(
       AzureDevOpsCli.layer,
@@ -332,6 +343,9 @@ const layerGitManager = GitManager.layer.pipe(
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerSourceControlProviderRegistry),
   Layer.provideMerge(TextGeneration.layer.pipe(Layer.provide(layerSourceControlProviderRegistry))),
+  Layer.provideMerge(layerVcsChange),
+  Layer.provideMerge(layerVcsSync),
+  Layer.provideMerge(layerVcsReview),
 );
 
 const layerGit = Layer.empty.pipe(
@@ -345,6 +359,9 @@ const layerGitWorkflow = GitWorkflowService.layer.pipe(
 );
 
 const layerSourceControlRepositoryService = SourceControlRepositoryService.layer.pipe(
+  Layer.provideMerge(layerVcsGitProviderCompatibility),
+  Layer.provideMerge(layerVcsDriverRegistry),
+  Layer.provideMerge(layerVcsSync),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerSourceControlProviderRegistry),
 );
@@ -353,12 +370,16 @@ const layerProjectCloneTracker = ProjectCloneTracker.layer.pipe(
   Layer.provide(layerSourceControlRepositoryService),
 );
 
+const layerVcsWorkspace = VcsWorkspaceService.layer.pipe(Layer.provideMerge(layerVcsDriverRegistry), Layer.provideMerge(layerGitWorkflow));
+
 const layerReview = ReviewService.layer.pipe(
+  Layer.provideMerge(layerVcsGitProviderCompatibility),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerVcsDriverRegistry),
 );
 
 const layerVcs = Layer.empty.pipe(
+  Layer.provideMerge(layerVcsWorkspace),
   Layer.provideMerge(VcsProjectConfig.layer),
   Layer.provideMerge(layerVcsDriverRegistry),
   Layer.provideMerge(VcsProvisioningService.layer.pipe(Layer.provide(layerVcsDriverRegistry))),

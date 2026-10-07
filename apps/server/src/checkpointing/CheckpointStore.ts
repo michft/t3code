@@ -1,7 +1,7 @@
 /**
  * CheckpointStore - Repository interface for filesystem-backed workspace checkpoints.
  *
- * Owns hidden Git-ref checkpoint capture/restore and diff computation for a
+ * Owns driver-backed checkpoint capture/restore and diff computation for a
  * workspace thread timeline. It does not store user-facing checkpoint metadata
  * and does not coordinate provider conversation rollback.
  *
@@ -51,7 +51,7 @@ export interface DeleteCheckpointRefsInput {
 export class CheckpointStore extends Context.Service<
   CheckpointStore,
   {
-    /** Check whether cwd is inside a Git worktree. */
+    /** Check whether cwd is inside a repository with checkpoint support. */
     readonly isGitRepository: (cwd: string) => Effect.Effect<boolean, CheckpointStoreError>;
 
     /**
@@ -119,8 +119,8 @@ export const make = Effect.gen(function* () {
 
   const isGitRepository: CheckpointStore["Service"]["isGitRepository"] = (cwd) =>
     vcsRegistry
-      .detect({ cwd, requestedKind: "git" })
-      .pipe(Effect.map((repository) => repository !== null));
+      .detect({ cwd })
+      .pipe(Effect.map((handle) => handle?.driver.checkpoints !== undefined));
 
   const captureCheckpoint: CheckpointStore["Service"]["captureCheckpoint"] = Effect.fn(
     "captureCheckpoint",

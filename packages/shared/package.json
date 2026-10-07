@@ -51,6 +51,10 @@
       "types": "./src/githubMedia.ts",
       "import": "./src/githubMedia.ts"
     },
+    "./jjCli": {
+      "types": "./src/jjCli.ts",
+      "import": "./src/jjCli.ts"
+    },
     "./sourceControl": {
       "types": "./src/sourceControl.ts",
       "import": "./src/sourceControl.ts"

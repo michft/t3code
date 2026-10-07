@@ -42,6 +42,9 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
   );
 
   const busy = gitState.gitOperationLabel !== null;
+  const isJjRepository = gitStatus.data?.driverKind === "jj";
+  const jjPublishRef = selectedThread?.vcsWorkspace?.publishRef ?? null;
+  const hasJjPublishRef = isJjRepository && jjPublishRef !== null;
   const isDefaultRef = gitStatus.data?.isDefaultRef ?? false;
   const allFiles = gitStatus.data?.workingTree?.files ?? [];
 
@@ -62,7 +65,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
       const commitMessage = dialogCommitMessage.trim();
       navigation.goBack();
       await gitActions.onRunSelectedThreadGitAction({
-        action: "commit",
+        action: !featureBranch && hasJjPublishRef ? "commit_push" : "commit",
         featureBranch,
         ...(commitMessage ? { commitMessage } : {}),
         ...(!allSelected ? { filePaths: selectedFiles.map((file) => file.path) } : {}),
@@ -74,6 +77,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
       canChangeThreadBranch,
       dialogCommitMessage,
       gitActions,
+      hasJjPublishRef,
       navigation,
       selectedFiles,
     ],

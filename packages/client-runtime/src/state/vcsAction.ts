@@ -82,6 +82,7 @@ export interface RunVcsStackedActionInput {
   /** The thread the action runs beside; the server links a pull request it creates to it. */
   readonly threadId?: ThreadId;
   readonly projectId?: ProjectId;
+  readonly publishRef?: GitRunStackedActionInput["publishRef"];
   readonly onProgress?: (event: GitActionProgressEvent) => void;
 }
 
@@ -474,6 +475,7 @@ export function createVcsActionManager<R, E>(
           ...(input.filePaths?.length ? { filePaths: [...input.filePaths] } : {}),
           ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
           ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
+          ...(input.publishRef ? { publishRef: input.publishRef } : {}),
         };
         const clearOwnedState = Effect.sync(() => {
           const current = registry.get(stateAtom);

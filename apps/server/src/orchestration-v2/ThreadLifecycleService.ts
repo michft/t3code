@@ -5,6 +5,7 @@ import {
   type ProviderInteractionMode,
   type RuntimeMode,
   ThreadId,
+  type VcsWorkspaceIdentity,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -55,6 +56,7 @@ export class ThreadLifecycleService extends Context.Service<
       readonly title?: string;
       readonly branch?: string | null;
       readonly worktreePath?: string | null;
+      readonly vcsWorkspace?: VcsWorkspaceIdentity | null;
     }) => Effect.Effect<Pick<OrchestrationV2ThreadProjection, "thread">, ThreadLifecycleError>;
     readonly setRuntimeMode: (input: {
       readonly commandId: CommandId;
@@ -114,6 +116,7 @@ const make = Effect.gen(function* () {
         ...(input.title === undefined ? {} : { title: input.title }),
         ...(input.branch === undefined ? {} : { branch: input.branch }),
         ...(input.worktreePath === undefined ? {} : { worktreePath: input.worktreePath }),
+        ...(input.vcsWorkspace === undefined ? {} : { vcsWorkspace: input.vcsWorkspace }),
       }),
     setRuntimeMode: (input) =>
       dispatch("set-runtime-mode", input.threadId, {

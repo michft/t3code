@@ -18,6 +18,7 @@ import {
   type SourceControlCloneProtocol,
   type SourceControlRepositoryVisibility,
   type ThreadId,
+  type VcsDriverKind,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
@@ -160,7 +161,7 @@ export function useSourceControlActionRunning(
   );
 }
 
-export function useVcsInitAction(scope: SourceControlActionScope) {
+export function useVcsInitAction(scope: SourceControlActionScope, kind: VcsDriverKind = "git") {
   const init = useAtomCommand(vcsEnvironment.init, { reportFailure: false });
   const action = useCallback(async () => {
     const target = resolveScope(scope);
@@ -177,10 +178,15 @@ export function useVcsInitAction(scope: SourceControlActionScope) {
     }
     return init({
       environmentId: target.environmentId,
-      input: { cwd: target.cwd },
+      input: { cwd: target.cwd, kind },
     });
-  }, [init, scope]);
-  return useAction({ kind: "init", label: "Initializing repository", scope, action });
+  }, [init, kind, scope]);
+  return useAction({
+    kind: "init",
+    label: kind === "jj" ? "Initializing Jujutsu repository" : "Initializing Git repository",
+    scope,
+    action,
+  });
 }
 
 export function useVcsPullAction(scope: SourceControlActionScope) {
@@ -280,6 +286,7 @@ export function useSourceControlPublishRepositoryAction(scope: SourceControlActi
       visibility: SourceControlRepositoryVisibility;
       remoteName: string;
       protocol: SourceControlCloneProtocol;
+      publishRef?: SourceControlPublishRepositoryInput["publishRef"];
     }) => {
       const target = resolveScope(scope);
       if (target === null) {

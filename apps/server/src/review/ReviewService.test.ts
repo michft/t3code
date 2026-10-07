@@ -7,8 +7,9 @@ import * as PlatformError from "effect/PlatformError";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility.ts";
+import type * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ReviewService from "./ReviewService.ts";
 
 function layer(input: {
@@ -30,7 +31,11 @@ function layer(input: {
           }),
       }),
     ),
-    Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+    Layer.provide(
+      Layer.mock(VcsGitProviderCompatibility.VcsGitProviderCompatibility)({
+        git: {} as GitVcsDriver.GitVcsDriver["Service"],
+      }),
+    ),
     Layer.provide(
       ServerSettings.ServerSettingsService.layerTest({
         worktreesDirectory: input.worktreesDirectory ?? "",

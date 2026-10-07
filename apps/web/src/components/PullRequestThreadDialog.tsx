@@ -76,6 +76,8 @@ export function PullRequestThreadDialog({
     [gitStatus?.sourceControlProvider],
   );
   const terminology = sourceControlPresentation.terminology;
+  const vcsPresentation = getVcsPresentation(gitStatus?.driverKind);
+  const workspaceLabel = capitalizeVcsTerm(vcsPresentation.workspaceSingular);
   const SourceControlIcon = sourceControlPresentation.Icon;
 
   useEffect(() => {
@@ -230,7 +232,8 @@ export function PullRequestThreadDialog({
           </DialogTitle>
           <DialogDescription>
             Resolve a {sourceControlPresentation.providerName} {terminology.singular}, then create
-            the draft thread in the main repo or in a dedicated worktree.
+            the draft thread in the main repository or in a dedicated{" "}
+            {vcsPresentation.workspaceSingular}.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -325,7 +328,9 @@ export function PullRequestThreadDialog({
               preparePullRequestThreadAction.isPending
             }
           >
-            {preparingMode === "worktree" ? "Preparing worktree..." : "Worktree"}
+            {preparingMode === "worktree"
+              ? `Preparing ${vcsPresentation.workspaceSingular}...`
+              : workspaceLabel}
           </Button>
         </DialogFooter>
       </DialogPopup>

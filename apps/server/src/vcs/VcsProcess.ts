@@ -18,6 +18,7 @@ import {
   VcsProcessStdinWriteError,
   VcsProcessTimeoutError,
 } from "@t3tools/contracts";
+import { classifyJjCommandFailure } from "@t3tools/shared/jjCli";
 import * as ProcessRunner from "../processRunner.ts";
 
 export interface VcsProcessInput {
@@ -62,7 +63,15 @@ const GITHUB_PROCESS_CONCURRENCY = 4;
 
 export const CHECKPOINT_CAPTURE_OPERATION = "GitVcsDriver.checkpoints.captureCheckpoint";
 
-const classifyNonZeroExit = (command: string, stderr: string): VcsProcessExitFailureKind => {
+const classifyNonZeroExit = (
+  command: string,
+  stderr: string,
+  exitCode: number,
+): VcsProcessExitFailureKind => {
+  if (command === "jj") {
+    return classifyJjCommandFailure({ exitCode, stderr }) ?? "command-failed";
+  }
+
   const normalized = stderr.toLowerCase();
 
   if (
@@ -176,7 +185,7 @@ export const make = Effect.gen(function* () {
     }
 
     if (!input.allowNonZeroExit && result.code !== 0) {
-      const failureKind = classifyNonZeroExit(input.command, result.stderr);
+      const failureKind = classifyNonZeroExit(input.command, result.stderr, result.code);
       return yield* VcsProcessExitError.fromProcessExit(
         baseError,
         {

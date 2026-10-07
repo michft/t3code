@@ -2,9 +2,11 @@ import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/process";
@@ -15,6 +17,10 @@ import * as ServerConfig from "../config.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as BitbucketApi from "./BitbucketApi.ts";
 import * as BitbucketSourceControlProvider from "./BitbucketSourceControlProvider.ts";
+import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility.ts";
+import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as VcsDriver from "../vcs/VcsDriver.ts";
+import * as VcsSyncService from "../vcs/VcsSyncService.ts";
 import type * as SourceControlProvider from "./SourceControlProvider.ts";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
 import * as SourceControlRepositoryService from "./SourceControlRepositoryService.ts";
@@ -59,10 +65,46 @@ function processOutput(): GitVcsDriver.ExecuteGitResult {
   };
 }
 
+function mockJjDriver(
+  overrides: Partial<VcsDriver.VcsDriver["Service"]>,
+): VcsDriver.VcsDriver["Service"] {
+  const unexpected = () => Effect.die("unexpected jj driver call");
+  return VcsDriver.VcsDriver.of({
+    capabilities: {
+      kind: "jj",
+      supportsWorktrees: false,
+      supportsBookmarks: true,
+      supportsAtomicSnapshot: true,
+      supportsPushDefaultRemote: true,
+      supportsWorkspaces: true,
+      supportsNamedPublishRefs: true,
+      supportsSelectedFileFinalize: true,
+      supportsThreadLocalRestore: true,
+      supportsDefaultRemotePush: true,
+      supportsGitProviderCompatibility: true,
+      ignoreClassifier: "native",
+    },
+    execute: unexpected,
+    detectRepository: unexpected,
+    isInsideWorkTree: unexpected,
+    listWorkspaceFiles: unexpected,
+    listRemotes: unexpected,
+    addRemote: unexpected,
+    removeRemote: unexpected,
+    resolveDefaultRemote: unexpected,
+    filterIgnoredPaths: unexpected,
+    initRepository: unexpected,
+    cloneRepository: unexpected,
+    ...overrides,
+  });
+}
+
 function layer(input: {
   readonly provider?: SourceControlProvider.SourceControlProvider["Service"];
   readonly git?: Partial<GitVcsDriver.GitVcsDriver["Service"]>;
   readonly fileSystem?: FileSystem.FileSystem;
+  readonly vcsDriver?: VcsDriver.VcsDriver["Service"];
+  readonly vcsSync?: Partial<VcsSyncService.VcsSyncService["Service"]>;
 }) {
   const layerService = SourceControlRepositoryService.layer.pipe(
     Layer.provide(
@@ -72,17 +114,37 @@ function layer(input: {
       }),
     ),
     Layer.provide(
-      Layer.mock(GitVcsDriver.GitVcsDriver)({
-        execute: () => Effect.succeed(processOutput()),
-        ensureRemote: () => Effect.succeed("origin"),
-        pushCurrentBranch: () =>
+      Layer.mock(VcsGitProviderCompatibility.VcsGitProviderCompatibility)({
+        git: {
+          execute: () => Effect.succeed(processOutput()),
+          ensureRemote: () => Effect.succeed("origin"),
+          pushCurrentBranch: () =>
+            Effect.succeed({
+              status: "pushed" as const,
+              branch: "feature/remote-v1",
+              upstreamBranch: "origin/feature/remote-v1",
+              setUpstream: true,
+            }),
+          ...input.git,
+        } as GitVcsDriver.GitVcsDriver["Service"],
+      }),
+    ),
+    Layer.provide(
+      Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+        resolve: () =>
           Effect.succeed({
-            status: "pushed" as const,
-            branch: "feature/remote-v1",
-            upstreamBranch: "origin/feature/remote-v1",
-            setUpstream: true,
+            kind: input.vcsDriver?.capabilities.kind ?? ("git" as const),
+            repository: null!,
+            driver: input.vcsDriver ?? null!,
           }),
-        ...input.git,
+      }),
+    ),
+    Layer.provide(
+      Layer.mock(VcsSyncService.VcsSyncService)({
+        fetch: () => Effect.die("unexpected jj fetch"),
+        publish: () => Effect.die("unexpected jj publish"),
+        readRangeContext: () => Effect.die("unexpected jj range context"),
+        ...input.vcsSync,
       }),
     ),
     Layer.provide(
@@ -689,6 +751,73 @@ it.effect("publish succeeds with status remote_added when the local repo has no 
                 branch: "main",
                 upstreamBranch: "origin/main",
                 setUpstream: true,
+              };
+            }),
+        },
+      }),
+    ),
+  );
+});
+
+it.effect("publishes a new hosted jj repository through one explicit bookmark", () => {
+  const remoteCalls: Array<{ name: string; url: string }> = [];
+  let publishedBookmark: string | null = null;
+  const publishRef = {
+    kind: "bookmark" as const,
+    name: "feature/phase-6",
+    target: { commitId: "published-commit", changeId: "published-change" },
+  };
+  const driver = mockJjDriver({
+    listRemotes: () =>
+      Effect.succeed({
+        remotes: [],
+        freshness: {
+          source: "live-local",
+          observedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
+          expiresAt: Option.none(),
+        },
+      }),
+    addRemote: (input) =>
+      Effect.sync(() => {
+        remoteCalls.push({ name: input.name, url: input.url });
+      }),
+  });
+
+  return Effect.gen(function* () {
+    const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+    const result = yield* service.publishRepository({
+      cwd: "/jj-workspace",
+      provider: "github",
+      repository: "octocat/t3code",
+      visibility: "private",
+      remoteName: "origin",
+      protocol: "ssh",
+      publishRef,
+    });
+
+    assert.equal(publishedBookmark, publishRef.name);
+    assert.deepStrictEqual(remoteCalls, [{ name: "origin", url: CLONE_URLS.sshUrl }]);
+    assert.deepStrictEqual(result, {
+      repository: { provider: "github", ...CLONE_URLS },
+      remoteName: "origin",
+      remoteUrl: CLONE_URLS.sshUrl,
+      branch: publishRef.name,
+      upstreamBranch: `origin/${publishRef.name}`,
+      status: "pushed",
+      publishRef: { ...publishRef, remoteName: "origin" },
+    });
+  }).pipe(
+    Effect.provide(
+      layer({
+        vcsDriver: driver,
+        vcsSync: {
+          publish: (input) =>
+            Effect.sync(() => {
+              publishedBookmark = input.publishRef.name;
+              return {
+                status: "pushed" as const,
+                remoteName: input.remoteName ?? "origin",
+                publishRef: { ...input.publishRef, remoteName: input.remoteName ?? "origin" },
               };
             }),
         },
