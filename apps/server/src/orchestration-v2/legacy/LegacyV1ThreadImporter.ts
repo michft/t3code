@@ -47,6 +47,7 @@ interface LegacyThreadRow {
   readonly branch: string | null;
   readonly worktree_path: string | null;
   readonly vcs_workspace_json: string | null;
+  readonly repository_path: string | null;
   readonly created_at: string;
   readonly updated_at: string;
   readonly archived_at: string | null;
@@ -220,7 +221,16 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
     interactionMode: interactionModeFor(row.interaction_mode),
     branch,
     worktreePath,
-    ...(Option.isSome(workspace) ? { vcsWorkspace: workspace.value } : {}),
+    ...(Option.isSome(workspace)
+      ? {
+          vcsWorkspace: {
+            ...workspace.value,
+            ...(workspace.value.repositoryPath === undefined && row.repository_path
+              ? { repositoryPath: row.repository_path }
+              : {}),
+          },
+        }
+      : {}),
     linkedPullRequest,
     pullRequests: importedPullRequests,
     branchPullRequest: branchPullRequestFor(row),
@@ -460,6 +470,7 @@ const make = Effect.gen(function* () {
         thread.branch,
         thread.worktree_path,
         thread.vcs_workspace_json,
+        (SELECT project.workspace_root FROM projection_projects AS project WHERE project.project_id = thread.project_id) AS repository_path,
         thread.created_at,
         thread.updated_at,
         thread.archived_at,
@@ -491,6 +502,7 @@ const make = Effect.gen(function* () {
          OR json_type(projection.payload_json, '$.pullRequests') IS NULL
          OR json_type(projection.payload_json, '$.branchPullRequest') IS NULL
          OR json_type(projection.payload_json, '$.activeOrderKey') IS NULL
+         OR (thread.vcs_workspace_json IS NOT NULL AND json_type(projection.payload_json, '$.vcsWorkspace') IS NULL)
       ORDER BY thread.created_at ASC, thread.thread_id ASC
     `;
     let repairedThreadCount = 0;
@@ -502,6 +514,9 @@ const make = Effect.gen(function* () {
       const legacyPullRequests = legacy.pullRequests ?? [];
       const repaired: OrchestrationV2AppThread = {
         ...current,
+        ...(current.vcsWorkspace === undefined && legacy.vcsWorkspace !== undefined
+          ? { vcsWorkspace: legacy.vcsWorkspace }
+          : {}),
         pinnedAt: current.pinnedAt === undefined ? legacy.pinnedAt : current.pinnedAt,
         autoSettleDisabledAt:
           current.autoSettleDisabledAt === undefined
@@ -565,6 +580,7 @@ const make = Effect.gen(function* () {
         thread.branch,
         thread.worktree_path,
         thread.vcs_workspace_json,
+        (SELECT project.workspace_root FROM projection_projects AS project WHERE project.project_id = thread.project_id) AS repository_path,
         thread.created_at,
         thread.updated_at,
         thread.archived_at,
