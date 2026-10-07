@@ -1,5 +1,5 @@
 import * as VcsWorkspaceService from "../vcs/VcsWorkspaceService.ts";
-import type { VcsWorkspaceIdentity } from "@t3tools/contracts";
+import type { GitCommandError, VcsWorkflowError, VcsWorkspaceIdentity } from "@t3tools/contracts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -619,7 +619,7 @@ const make = Effect.gen(function* () {
             // The thread forgets the worktree only once it is gone; a failed
             // removal leaves the directory for the user to clean up rather than
             // reusing a checkout that may be half written.
-            const removal: Effect.Effect<void, unknown> =
+            const removal: Effect.Effect<void, GitCommandError | VcsWorkflowError> =
               vcsWorkspace?.driverKind === "jj"
                 ? vcsWorkspaces.removeThreadWorkspace({
                     cwd: project.workspaceRoot,

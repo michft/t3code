@@ -228,7 +228,7 @@ it.layer(layerTest)("LegacyV1ThreadImporter", (it) => {
       `;
 
       const vcsWorkspace = {
-        driverKind: "jj",
+        driverKind: "jj" as const,
         name: "thread-jj",
         rootPath: "/tmp/legacy-project",
         repositoryPath: "/tmp/legacy-root",
