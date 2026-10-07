@@ -1,3 +1,4 @@
+import * as VcsWorkspaceService from "../vcs/VcsWorkspaceService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
@@ -97,6 +98,7 @@ const adapter = {
 } as ProviderAdapterV2Shape;
 
 interface HarnessOptions {
+  readonly vcsWorkspace?: Partial<VcsWorkspaceService.VcsWorkspaceService["Service"]>;
   readonly managedFolders?: Layer.Layer<ManagedProjectFolders.ManagedProjectFolders>;
   readonly createWorktree?: GitWorkflow.GitWorkflowService["Service"]["createWorktree"];
   readonly fetchRemote?: GitWorkflow.GitWorkflowService["Service"]["fetchRemote"];
@@ -192,6 +194,12 @@ function makeHarness(options: HarnessOptions = {}) {
       }),
   );
   const layerLaunch = ThreadLaunch.layer.pipe(
+    Layer.provide(
+      Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({
+        detectKind: () => Effect.succeed("git"),
+        ...options.vcsWorkspace,
+      }),
+    ),
     Layer.provide(
       Layer.mergeAll(
         layerExternalServices,
@@ -2266,6 +2274,48 @@ it.effect.each([0, 1])("releases an async setup before its completion with exit 
         (yield* threads.getThreadProjection(launched.threadId)).runs[0]?.status,
         "starting",
       );
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("persists a jj workspace for thread setup without assigning a Git branch", () =>
+  Effect.gen(function* () {
+    const workspace = {
+      driverKind: "jj" as const,
+      name: "thread-jj",
+      rootPath: "/repo-workspaces/jj",
+      repositoryPath: "/repo",
+      workspaceRevision: { commitId: "abc", changeId: "change" },
+      publishRef: null,
+    };
+    const createWorkspace = vi.fn(() => Effect.succeed(workspace));
+    const harness = makeHarness({
+      vcsWorkspace: {
+        detectKind: () => Effect.succeed("jj"),
+        createThreadWorkspace: createWorkspace,
+      },
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const input = launchInput({
+        command: "command:launch:jj",
+        thread: "thread:launch:jj",
+        workspace: { type: "worktree", baseRef: "main" },
+      });
+      const launched = yield* launches.launch(input);
+      yield* waitUntil(() =>
+        threads
+          .getThreadProjection(launched.threadId)
+          .pipe(Effect.map((projection) => projection.thread.vcsWorkspace !== undefined)),
+      );
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      assert.deepEqual(projection.thread.vcsWorkspace, workspace);
+      assert.isNull(projection.thread.branch);
+      assert.equal(projection.thread.worktreePath, workspace.rootPath);
+      assert.equal(createWorkspace.mock.calls.length, 1);
+      assert.equal(harness.createWorktree.mock.calls.length, 0);
+      assert.equal(harness.renameBranch.mock.calls.length, 0);
     }).pipe(Effect.provide(harness.layer));
   }),
 );

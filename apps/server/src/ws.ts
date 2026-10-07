@@ -1,3 +1,5 @@
+import * as VcsWorkspaceService from "./vcs/VcsWorkspaceService.ts";
+import { GitCommandError } from "@t3tools/contracts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -1262,6 +1264,7 @@ const layerWsRpc = (
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const vcsWorkspaces = yield* VcsWorkspaceService.VcsWorkspaceService;
       const terminalManager = yield* TerminalManager.TerminalManager;
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
@@ -2831,7 +2834,37 @@ const layerWsRpc = (
             .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsListRefs]: (input) => gitWorkflow.listRefs(input),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
-          gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+          (input.threadId
+            ? vcsWorkspaces
+                .createThreadWorkspace({
+                  cwd: input.cwd,
+                  threadId: input.threadId,
+                  baseRevision: input.refName,
+                  ...(input.baseRefName ? { baseRefName: input.baseRefName } : {}),
+                  ...(input.newRefName ? { publishRef: input.newRefName } : {}),
+                  ...(input.path ? { path: input.path } : {}),
+                })
+                .pipe(
+                  Effect.map((workspace) => ({
+                    worktree: {
+                      path: workspace.rootPath,
+                      refName: workspace.publishRef?.name ?? workspace.name ?? input.refName,
+                    },
+                    workspace,
+                  })),
+                  Effect.mapError(
+                    (cause) =>
+                      new GitCommandError({
+                        operation: "vcs.createWorktree",
+                        command: "vcs-workspace",
+                        cwd: input.cwd,
+                        detail: cause.message,
+                        cause,
+                      }),
+                  ),
+                )
+            : gitWorkflow.createWorktree(input)
+          ).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsCreateRef]: (input) =>
@@ -2840,6 +2873,21 @@ const layerWsRpc = (
           gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsInit]: (input) =>
           vcsProvisioning.initRepository(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+        [WS_METHODS.gitRefreshStatusLegacy]: (input) =>
+          vcsStatusBroadcaster.refreshStatus(input.cwd),
+        [WS_METHODS.gitPullLegacy]: (input) =>
+          gitWorkflow
+            .pullCurrentBranch(input.cwd)
+            .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+        [WS_METHODS.gitListRefsLegacy]: (input) => gitWorkflow.listRefs(input),
+        [WS_METHODS.gitCreateWorktreeLegacy]: (input) =>
+          gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+        [WS_METHODS.gitRemoveWorktreeLegacy]: (input) =>
+          gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+        [WS_METHODS.gitCreateRefLegacy]: (input) =>
+          gitWorkflow.createRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+        [WS_METHODS.gitSwitchRefLegacy]: (input) =>
+          gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.reviewGetDiffPreview]: (input) => review.getDiffPreview(input),
         [WS_METHODS.reviewGetDiffFileContents]: (input) => review.getDiffFileContents(input),
         [WS_METHODS.terminalOpen]: (input) => terminalManager.open(input),

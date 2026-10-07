@@ -38,6 +38,7 @@ export type VcsDriverCapabilities = typeof VcsDriverCapabilities.Type;
 export const VcsRepositoryIdentity = Schema.Struct({
   kind: VcsDriverKind,
   rootPath: TrimmedNonEmptyString,
+  repositoryPath: Schema.optional(TrimmedNonEmptyString),
   metadataPath: Schema.NullOr(TrimmedNonEmptyString),
   colocated: Schema.optional(Schema.Boolean),
   freshness: VcsFreshness,
@@ -135,6 +136,7 @@ export const VcsWorkspaceIdentity = Schema.Struct({
   driverKind: VcsDriverKind,
   name: Schema.NullOr(TrimmedNonEmptyString),
   rootPath: TrimmedNonEmptyString,
+  repositoryPath: Schema.optional(TrimmedNonEmptyString),
   workspaceRevision: Schema.NullOr(VcsRevision),
   baseRevision: Schema.optional(Schema.NullOr(VcsRevision)),
   publishRef: Schema.NullOr(VcsNamedRef),
@@ -158,16 +160,13 @@ export type VcsThreadWorkspace = typeof VcsThreadWorkspace.Type;
 export const VcsWorkflowKind = Schema.Literals(["change", "workspace", "sync", "checkpoint"]);
 export type VcsWorkflowKind = typeof VcsWorkflowKind.Type;
 
-export class VcsWorkflowError extends Schema.TaggedError<VcsWorkflowError>()(
-  "VcsWorkflowError",
-  {
-    workflow: VcsWorkflowKind,
-    operation: TrimmedNonEmptyString,
-    kind: VcsDriverKind,
-    detail: TrimmedNonEmptyString,
-    recoverable: Schema.Boolean,
-  },
-) {
+export class VcsWorkflowError extends Schema.TaggedError<VcsWorkflowError>()("VcsWorkflowError", {
+  workflow: VcsWorkflowKind,
+  operation: TrimmedNonEmptyString,
+  kind: VcsDriverKind,
+  detail: TrimmedNonEmptyString,
+  recoverable: Schema.Boolean,
+}) {
   override get message(): string {
     return `VCS ${this.workflow} workflow failed in ${this.operation}: ${this.detail}`;
   }

@@ -296,3 +296,28 @@ it.effect("queues provider and resource cleanup and preserves an earlier deletio
     );
   }).pipe(Effect.provide(IdAllocator.layer)),
 );
+
+it.effect("retains jj workspace identity in durable deletion cleanup", () =>
+  Effect.gen(function* () {
+    const projection = makeProjection();
+    const workspace = {
+      driverKind: "jj" as const,
+      name: "thread-jj",
+      rootPath: "/repo-workspaces/jj",
+      repositoryPath: "/repo",
+      workspaceRevision: { commitId: "abc" },
+      publishRef: null,
+    };
+    const plan = yield* planThreadDeletion({
+      command,
+      projection: { ...projection, thread: { ...projection.thread, vcsWorkspace: workspace } },
+      attachmentIds: [],
+      now: deletedAt,
+      idAllocator: yield* IdAllocator.IdAllocatorV2,
+    });
+    assert.deepEqual(
+      plan.effects.find((effect) => effect.request.type === "terminal.cleanup")?.request,
+      { type: "terminal.cleanup", vcsWorkspace: workspace },
+    );
+  }).pipe(Effect.provide(IdAllocator.layer)),
+);

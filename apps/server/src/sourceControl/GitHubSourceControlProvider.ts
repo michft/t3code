@@ -1,3 +1,4 @@
+import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@t3tools/shared/git";
 import * as Schema from "effect/Schema";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -266,12 +267,21 @@ export const makeDiscovery = Effect.gen(function* () {
 export const make = Effect.gen(function* () {
   const github = yield* GitHubCli.GitHubCli;
   const api = yield* GitHubApi.GitHubApi;
+  const repositoryInput = (
+    context: Parameters<
+      SourceControlProvider.SourceControlProvider["Service"]["getDefaultBranch"]
+    >[0]["context"],
+  ) => {
+    const repository = parseGitHubRepositoryNameWithOwnerFromRemoteUrl(context?.remoteUrl ?? null);
+    return repository === null ? {} : { repository };
+  };
 
   const listChangeRequests: SourceControlProvider.SourceControlProvider["Service"]["listChangeRequests"] =
     (input) => {
       if (input.state === "open") {
         return github
           .listOpenPullRequests({
+            ...repositoryInput(input.context),
             cwd: input.cwd,
             headSelector: input.headSelector,
             ...(input.context === undefined
@@ -300,6 +310,7 @@ export const make = Effect.gen(function* () {
 
       return github
         .listPullRequestsByHead({
+          ...repositoryInput(input.context),
           cwd: input.cwd,
           headSelector: input.headSelector,
           state: input.state,
@@ -391,6 +402,7 @@ export const make = Effect.gen(function* () {
     getChangeRequest: (input) =>
       github
         .getPullRequest({
+          ...repositoryInput(input.context),
           ...input,
           ...(input.context === undefined
             ? {}
@@ -416,6 +428,7 @@ export const make = Effect.gen(function* () {
     createChangeRequest: (input) =>
       github
         .createPullRequest({
+          ...repositoryInput(input.context),
           cwd: input.cwd,
           baseBranch: input.baseRefName,
           headSelector: input.headSelector,
@@ -475,6 +488,7 @@ export const make = Effect.gen(function* () {
     getDefaultBranch: (input) =>
       github
         .getDefaultBranch({
+          ...repositoryInput(input.context),
           ...input,
           ...(input.context === undefined
             ? {}

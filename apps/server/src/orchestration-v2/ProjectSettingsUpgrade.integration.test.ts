@@ -1,3 +1,4 @@
+import * as VcsWorkspaceService from "../vcs/VcsWorkspaceService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { ProjectId } from "@t3tools/contracts";
@@ -166,9 +167,14 @@ const layerRuntime = (dbPath: string) => {
       }),
     ),
     Layer.provide(
-      Layer.mock(GitWorkflow.GitWorkflowService)({
-        pruneWorktrees: () => Effect.void,
-      }),
+      Layer.mergeAll(
+        Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({
+          detectKind: () => Effect.succeed("git"),
+        }),
+        Layer.mock(GitWorkflow.GitWorkflowService)({
+          pruneWorktrees: () => Effect.void,
+        }),
+      ),
     ),
     Layer.provide(layerPlatform),
   );

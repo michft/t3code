@@ -17,6 +17,7 @@ import {
   type GitResolvePullRequestResult,
   type SourceControlCloneProtocol,
   type SourceControlRepositoryVisibility,
+  type SourceControlPublishRepositoryInput,
   type ThreadId,
   type VcsDriverKind,
 } from "@t3tools/contracts";

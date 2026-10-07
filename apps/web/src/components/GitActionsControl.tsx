@@ -1581,7 +1581,11 @@ export default function GitActionsControl({
     });
   };
 
-  const runQuickAction = () => {
+  const runQuickAction = (event: React.MouseEvent<HTMLElement>) => {
+    if (quickAction.kind === "open_pr" && gitStatusForActions?.pr) {
+      openPrLink(event, gitStatusForActions.pr.url);
+      return;
+    }
     if (quickAction.kind === "open_publish") {
       setIsPublishDialogOpen(true);
       return;
@@ -1609,11 +1613,36 @@ export default function GitActionsControl({
         }
 
         const pullResult = result.value;
-        const title = pullResult.status === "pulled" ? "Pulled" : "Already up to date";
-        const description =
-          pullResult.status === "pulled"
-            ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
-            : `${pullResult.refName} is already synchronized.`;
+        if (pullResult.workspaceRevision && activeServerThread?.vcsWorkspace && activeThreadRef) {
+          void updateThreadMetadata({
+            environmentId: activeThreadRef.environmentId,
+            input: {
+              threadId: activeThreadRef.threadId,
+              vcsWorkspace: {
+                ...activeServerThread.vcsWorkspace,
+                workspaceRevision: pullResult.workspaceRevision,
+              },
+            },
+          });
+        }
+        const needsRebase = pullResult.status === "fetched_needs_rebase";
+        const needsResolution = pullResult.status === "fetched_needs_resolution";
+        const title = needsResolution
+          ? "Fetched; resolution needed"
+          : needsRebase
+            ? "Fetched; rebase needed"
+            : pullResult.status === "pulled"
+              ? isJjRepository
+                ? "Fetched updates"
+                : "Pulled"
+              : "Already up to date";
+        const description = needsResolution
+          ? "Workspace or bookmark conflicts were left unchanged."
+          : needsRebase
+            ? "Local workspace changes were left unchanged."
+            : pullResult.status === "pulled"
+              ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
+              : `${pullResult.refName} is already synchronized.`;
         if (isPanel) {
           setInlineSuccess({ title, description, scopeKey: successScopeKey });
           return;
@@ -1648,8 +1677,12 @@ export default function GitActionsControl({
     }
   };
 
-  const openDialogForMenuItem = (item: GitActionMenuItem) => {
+  const openDialogForMenuItem = (item: GitActionMenuItem, event: React.MouseEvent<HTMLElement>) => {
     if (item.disabled) return;
+    if (item.kind === "open_pr" && gitStatusForActions?.pr) {
+      openPrLink(event, gitStatusForActions.pr.url);
+      return;
+    }
     if (item.dialogAction === "push") {
       void runGitActionWithToast({ action: "push" });
       return;
@@ -1710,9 +1743,10 @@ export default function GitActionsControl({
   const canPublishRepository =
     canWriteSourceControl && isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
 
-  const initializeGit = () => {
+  const initializeRepository = (kind: "git" | "jj") => {
+    const action = kind === "jj" ? initJjAction : initAction;
     void (async () => {
-      const result = await initAction.run();
+      const result = await action.run();
       if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
         return;
       }
@@ -1720,7 +1754,7 @@ export default function GitActionsControl({
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Git initialization failed",
+          title: `${kind === "jj" ? "Jujutsu" : "Git"} initialization failed`,
           description: error instanceof Error ? error.message : "An error occurred.",
           ...(threadToastData !== undefined ? { data: threadToastData } : {}),
         }),
@@ -1776,8 +1810,8 @@ export default function GitActionsControl({
             density={presentation === "menu" ? "touch" : "default"}
             key={`${item.id}-${item.label}`}
             disabled={!canWriteSourceControl || item.disabled}
-            onClick={() => {
-              openDialogForMenuItem(item);
+            onClick={(event) => {
+              openDialogForMenuItem(item, event);
             }}
           >
             <GitActionItemIcon icon={item.icon} SourceControlIcon={SourceControlIcon} />
@@ -1797,7 +1831,7 @@ export default function GitActionsControl({
           <MenuItemLabel>Publish repository...</MenuItemLabel>
         </MenuItem>
       ) : null}
-      {gitStatusForActions?.refName === null && (
+      {!isJjRepository && gitStatusForActions?.refName === null && (
         <p className="px-2 py-1.5 text-xs text-warning">
           Detached HEAD: create and check out a branch to enable push and pull request actions.
         </p>
@@ -1819,17 +1853,32 @@ export default function GitActionsControl({
     <>
       {presentation === "menu" ? (
         !isRepo ? (
-          <MenuItem
-            density={presentation === "menu" ? "touch" : "default"}
+          <>
+            <MenuItem
+              density={presentation === "menu" ? "touch" : "default"}
 
-            disabled={initAction.isPending}
-            onClick={initializeGit}
-          >
-            <GitBranchPlusIcon className="size-4" />
-            <MenuItemLabel>
-              {initAction.isPending ? "Initializing..." : "Initialize Git"}
-            </MenuItemLabel>
-          </MenuItem>
+              disabled={initAction.isPending}
+              onClick={() => initializeRepository("git")}
+            >
+              <GitBranchPlusIcon className="size-4" />
+              <MenuItemLabel>
+                {initAction.isPending ? "Initializing..." : "Initialize Git"}
+              </MenuItemLabel>
+            </MenuItem>
+
+            {jjAvailable ? (
+              <MenuItem
+                density="touch"
+                disabled={!canWriteSourceControl || initJjAction.isPending}
+                onClick={() => initializeRepository("jj")}
+              >
+                <JujutsuIcon />
+                <MenuItemLabel>
+                  {initJjAction.isPending ? "Initializing..." : "Initialize Jujutsu"}
+                </MenuItemLabel>
+              </MenuItem>
+            ) : null}
+          </>
         ) : (
           <>
             <MenuItem
@@ -1857,26 +1906,42 @@ export default function GitActionsControl({
             >
               <MenuSubTrigger density="touch" disabled={isGitActionRunning}>
                 <SourceControlIcon className="size-4" />
-                <MenuItemLabel>Git actions</MenuItemLabel>
+                <MenuItemLabel>{versionControlPresentation.systemLabel} actions</MenuItemLabel>
               </MenuSubTrigger>
               <MenuSubPopup>{gitItems}</MenuSubPopup>
             </MenuSub>
           </>
         )
       ) : !isRepo ? (
-        <ThreadDetailsControl
-          size="xs"
-          variant={isPanel ? "ghost" : "outline"}
-          part="row"
-          panel={isPanel}
-          disabled={!canWriteSourceControl || initAction.isPending}
-          onClick={initializeGit}
-        >
-          <GitBranchPlusIcon className="size-3.5" aria-hidden />
-          <span className="ml-0.5">
-            {initAction.isPending ? "Initializing..." : "Initialize Git"}
-          </span>
-        </ThreadDetailsControl>
+        <ActionGroup aria-label="Initialize source control">
+          <ThreadDetailsControl
+            size="xs"
+            variant={isPanel ? "ghost" : "outline"}
+            part="row"
+            panel={isPanel}
+            disabled={!canWriteSourceControl || initAction.isPending}
+            onClick={() => initializeRepository("git")}
+          >
+            <GitBranchPlusIcon className="size-3.5" aria-hidden />
+            <span className="ml-0.5">
+              {initAction.isPending ? "Initializing..." : "Initialize Git"}
+            </span>
+          </ThreadDetailsControl>
+
+          {jjAvailable ? (
+            <ThreadDetailsControl
+              size="xs"
+              variant={isPanel ? "ghost" : "outline"}
+              part="row"
+              panel={isPanel}
+              disabled={!canWriteSourceControl || initJjAction.isPending}
+              onClick={() => initializeRepository("jj")}
+            >
+              <JujutsuIcon className="size-3.5" aria-hidden />
+              <span>{initJjAction.isPending ? "Initializing..." : "Initialize Jujutsu"}</span>
+            </ThreadDetailsControl>
+          ) : null}
+        </ActionGroup>
       ) : compact && !gitActionProgress && !visibleInlineSuccess ? null : (
         <ActionGroup
           role="group"
@@ -2068,7 +2133,9 @@ export default function GitActionsControl({
                       ? (gitStatusForActions?.workspaceRevision ?? "unknown")
                       : (gitStatusForActions?.refName ?? "(detached HEAD)")}
                   </span>
-                  {!isJjRepository && isDefaultRef && <span className="text-right text-warning">Default branch</span>}
+                  {!isJjRepository && isDefaultRef && (
+                    <span className="text-right text-warning">Default branch</span>
+                  )}
                 </span>
               </div>
               <div className="space-y-1">
@@ -2179,7 +2246,9 @@ export default function GitActionsControl({
               </div>
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-medium">{isJjRepository ? "Change message (optional)" : "Commit message (optional)"}</p>
+              <p className="text-sm font-medium">
+                {isJjRepository ? "Change message (optional)" : "Commit message (optional)"}
+              </p>
               <Textarea
                 value={dialogCommitMessage}
                 onChange={(event) => setDialogCommitMessage(event.target.value)}
@@ -2214,7 +2283,11 @@ export default function GitActionsControl({
               disabled={!canWriteSourceControl || noneSelected}
               onClick={runDialogAction}
             >
-              {isJjRepository ? jjPublishRef ? "Finalize & publish" : "Finalize change" : "Commit"}
+              {isJjRepository
+                ? jjPublishRef
+                  ? "Finalize & publish"
+                  : "Finalize change"
+                : "Commit"}
             </Button>
           </DialogFooter>
         </DialogPopup>

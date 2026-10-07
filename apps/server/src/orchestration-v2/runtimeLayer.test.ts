@@ -1,3 +1,4 @@
+import * as VcsWorkspaceService from "../vcs/VcsWorkspaceService.ts";
 import { limitRecoveryCommand } from "./UsageLimitRecoveryWorker.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -277,7 +278,14 @@ const layerTest = Layer.mergeAll(
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
-  Layer.provide(layerGitWorkflowTest),
+  Layer.provide(
+    Layer.merge(
+      layerGitWorkflowTest,
+      Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({
+        detectKind: () => Effect.succeed("git"),
+      }),
+    ),
+  ),
   Layer.provide(layerProjectServiceTest),
   Layer.provide(layerPlatformTest),
 );
@@ -289,7 +297,14 @@ const layerLegacyImportTest = RuntimeLayer.layer.pipe(
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
-  Layer.provide(layerGitWorkflowTest),
+  Layer.provide(
+    Layer.merge(
+      layerGitWorkflowTest,
+      Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({
+        detectKind: () => Effect.succeed("git"),
+      }),
+    ),
+  ),
   Layer.provide(layerProjectServiceTest),
   Layer.provide(layerPlatformTest),
 );
@@ -328,7 +343,14 @@ const layerProjectDeletionTest = Layer.mergeAll(
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
-  Layer.provide(layerGitWorkflowTest),
+  Layer.provide(
+    Layer.merge(
+      layerGitWorkflowTest,
+      Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({
+        detectKind: () => Effect.succeed("git"),
+      }),
+    ),
+  ),
   Layer.provide(layerPlatformTest),
 );
 
@@ -472,7 +494,14 @@ const layerSharedApplicationDataPlaneTest = Layer.mergeAll(
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
-  Layer.provide(layerGitWorkflowTest),
+  Layer.provide(
+    Layer.merge(
+      layerGitWorkflowTest,
+      Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({
+        detectKind: () => Effect.succeed("git"),
+      }),
+    ),
+  ),
   Layer.provide(layerPlatformTest),
 );
 

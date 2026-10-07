@@ -1,3 +1,4 @@
+import * as VcsWorkspaceService from "../vcs/VcsWorkspaceService.ts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import {
@@ -96,6 +97,7 @@ export const layer: Layer.Layer<
   | IdAllocator.IdAllocatorV2
   | FileSystem.FileSystem
   | GitWorkflowService.GitWorkflowService
+  | VcsWorkspaceService.VcsWorkspaceService
   | ProjectService.ProjectService
   | ProviderAuthService.ProviderAuthService
   | ProjectionStore.ProjectionStoreV2
@@ -110,6 +112,7 @@ export const layer: Layer.Layer<
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const fileSystem = yield* FileSystem.FileSystem;
     const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
+    const vcsWorkspaces = yield* VcsWorkspaceService.VcsWorkspaceService;
     const projects = yield* ProjectService.ProjectService;
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
@@ -462,7 +465,16 @@ export const layer: Layer.Layer<
         }
       }
       const { worktreePath, branch } = projection.thread;
-      if (worktreePath !== null && branch !== null) {
+      if (projection.thread.vcsWorkspace?.driverKind === "jj") {
+        const project = yield* projects.getById(projection.thread.projectId);
+        if (Option.isSome(project)) {
+          yield* vcsWorkspaces.ensureThreadWorkspace({
+            cwd: project.value.workspaceRoot,
+            threadId: projection.thread.id,
+            workspace: projection.thread.vcsWorkspace,
+          });
+        }
+      } else if (worktreePath !== null && branch !== null) {
         const exists = yield* fileSystem
           .exists(worktreePath)
           .pipe(Effect.orElseSucceed(() => true));

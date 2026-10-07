@@ -2473,6 +2473,7 @@ export const make = Effect.gen(function* () {
           pullRequest,
           branch: prepared.bookmarkName,
           worktreePath: prepared.workspacePath,
+          isOnPullRequestHead: true,
         };
       }
 

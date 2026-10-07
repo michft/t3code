@@ -12,6 +12,7 @@ import {
   RunId,
   RuntimeRequestId,
   ThreadId,
+  VcsWorkspaceIdentity,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -94,6 +95,7 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("terminal.cleanup"),
+    vcsWorkspace: Schema.optional(VcsWorkspaceIdentity),
   }),
   Schema.Struct({
     type: Schema.Literal("attachment.cleanup"),

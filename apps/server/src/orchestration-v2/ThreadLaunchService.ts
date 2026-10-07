@@ -1,3 +1,5 @@
+import * as VcsWorkspaceService from "../vcs/VcsWorkspaceService.ts";
+import type { VcsWorkspaceIdentity } from "@t3tools/contracts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -177,6 +179,7 @@ const make = Effect.gen(function* () {
   const cloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
   const terminals = yield* TerminalManager.TerminalManager;
   const git = yield* GitWorkflow.GitWorkflowService;
+  const vcsWorkspaces = yield* VcsWorkspaceService.VcsWorkspaceService;
   const setupScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -248,6 +251,7 @@ const make = Effect.gen(function* () {
     const reused = input.reusedWorktree;
     const tracked = input.workspaceStrategy.type === "worktree" || reused !== undefined;
     let createdWorktreePath: string | null = null;
+    let vcsWorkspace: VcsWorkspaceIdentity | null = null;
     let setupTerminalId: string | null = null;
     let workspaceRecorded = false;
     if (input.workspaceStrategy.type === "worktree") {
@@ -330,83 +334,116 @@ const make = Effect.gen(function* () {
             })
             .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
         }
-        let startRef = input.workspaceStrategy.baseRef;
-        // "Start from origin" is a stored default; repos without the requested
-        // remote branch fall back to the local base branch.
-        const startFromOrigin =
-          input.workspaceStrategy.startFromOrigin === true &&
-          (yield* git
-            .remoteExists({ cwd: project.workspaceRoot, remoteName: "origin" })
-            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))));
-        yield* setupTracker.stageStatus(threadId, "fetch", startFromOrigin ? "running" : "skipped");
-        if (startFromOrigin) {
-          yield* git
-            .fetchRemote({
+        const driverKind = yield* vcsWorkspaces
+          .detectKind(project.workspaceRoot)
+          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+        if (driverKind === "jj") {
+          vcsWorkspace = yield* vcsWorkspaces
+            .createThreadWorkspace({
               cwd: project.workspaceRoot,
-              remoteName: "origin",
-              refName: input.workspaceStrategy.baseRef,
+              threadId,
+              baseRevision: input.workspaceStrategy.baseRef,
+              ...(requestedBranch ? { publishRef: requestedBranch } : {}),
+              ...(input.workspaceStrategy.startFromOrigin ? { startFromOrigin: true } : {}),
             })
             .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
-          const remoteBaseExists = yield* git
-            .remoteBranchExists({
-              cwd: project.workspaceRoot,
-              refName: input.workspaceStrategy.baseRef,
-              remoteName: "origin",
-            })
-            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
-          if (remoteBaseExists) {
-            startRef = yield* git
-              .resolveRemoteTrackingCommit({
+          worktreePath = vcsWorkspace.rootPath;
+          branch = null;
+          createdWorktreePath = worktreePath;
+          yield* setupTracker.update(threadId, (snapshot) => ({
+            ...snapshot,
+            worktreePath,
+            branch,
+          }));
+          yield* setupTracker.stageStatus(threadId, "fetch", "done");
+          yield* setupTracker.stageStatus(threadId, "checkout", "done");
+        } else {
+          let startRef = input.workspaceStrategy.baseRef;
+          // "Start from origin" is a stored default; repos without the requested
+          // remote branch fall back to the local base branch.
+          const startFromOrigin =
+            input.workspaceStrategy.startFromOrigin === true &&
+            (yield* git
+              .remoteExists({ cwd: project.workspaceRoot, remoteName: "origin" })
+              .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))));
+          yield* setupTracker.stageStatus(
+            threadId,
+            "fetch",
+            startFromOrigin ? "running" : "skipped",
+          );
+          if (startFromOrigin) {
+            yield* git
+              .fetchRemote({
+                cwd: project.workspaceRoot,
+                remoteName: "origin",
+                refName: input.workspaceStrategy.baseRef,
+              })
+              .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+            const remoteBaseExists = yield* git
+              .remoteBranchExists({
                 cwd: project.workspaceRoot,
                 refName: input.workspaceStrategy.baseRef,
-                fallbackRemoteName: "origin",
+                remoteName: "origin",
               })
-              .pipe(
-                Effect.map((resolved) => resolved.commitSha),
-                Effect.mapError(mapError(input, "provision-worktree", threadId)),
-              );
+              .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+            if (remoteBaseExists) {
+              startRef = yield* git
+                .resolveRemoteTrackingCommit({
+                  cwd: project.workspaceRoot,
+                  refName: input.workspaceStrategy.baseRef,
+                  fallbackRemoteName: "origin",
+                })
+                .pipe(
+                  Effect.map((resolved) => resolved.commitSha),
+                  Effect.mapError(mapError(input, "provision-worktree", threadId)),
+                );
+            }
           }
-        }
-        if (startFromOrigin) yield* setupTracker.stageStatus(threadId, "fetch", "done");
-        if (
-          branch !== null &&
-          isTemporaryWorktreeBranch(branch) &&
-          (yield* git
-            .hasCommit({
-              cwd: project.workspaceRoot,
-              refName: `refs/heads/${WORKTREE_BRANCH_PREFIX}`,
-            })
-            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))))
-        ) {
-          branch = flattenTemporaryWorktreeBranchName(branch);
-        }
-        yield* setupTracker.stageStatus(threadId, "checkout", "running");
-        const worktree = yield* git
-          .createWorktree(
-            {
-              cwd: project.workspaceRoot,
-              refName: startRef,
-              newRefName: branch!,
-              baseRefName: input.workspaceStrategy.baseRef,
-              path: null,
-            },
-            {
-              progress: {
-                onWorktreeClaimed: (path) =>
-                  Effect.sync(() => {
-                    createdWorktreePath = path;
-                  }),
-                onCheckoutProgress: (progress) =>
-                  setupTracker.stage(threadId, "checkout", { percent: progress.percent }),
+          if (startFromOrigin) yield* setupTracker.stageStatus(threadId, "fetch", "done");
+          if (
+            branch !== null &&
+            isTemporaryWorktreeBranch(branch) &&
+            (yield* git
+              .hasCommit({
+                cwd: project.workspaceRoot,
+                refName: `refs/heads/${WORKTREE_BRANCH_PREFIX}`,
+              })
+              .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))))
+          ) {
+            branch = flattenTemporaryWorktreeBranchName(branch);
+          }
+          yield* setupTracker.stageStatus(threadId, "checkout", "running");
+          const worktree = yield* git
+            .createWorktree(
+              {
+                cwd: project.workspaceRoot,
+                refName: startRef,
+                newRefName: branch!,
+                baseRefName: input.workspaceStrategy.baseRef,
+                path: null,
               },
-            },
-          )
-          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
-        worktreePath = worktree.worktree.path;
-        branch = worktree.worktree.refName;
-        createdWorktreePath = worktreePath;
-        yield* setupTracker.update(threadId, (snapshot) => ({ ...snapshot, worktreePath, branch }));
-        yield* setupTracker.stageStatus(threadId, "checkout", "done");
+              {
+                progress: {
+                  onWorktreeClaimed: (path) =>
+                    Effect.sync(() => {
+                      createdWorktreePath = path;
+                    }),
+                  onCheckoutProgress: (progress) =>
+                    setupTracker.stage(threadId, "checkout", { percent: progress.percent }),
+                },
+              },
+            )
+            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+          worktreePath = worktree.worktree.path;
+          branch = worktree.worktree.refName;
+          createdWorktreePath = worktreePath;
+          yield* setupTracker.update(threadId, (snapshot) => ({
+            ...snapshot,
+            worktreePath,
+            branch,
+          }));
+          yield* setupTracker.stageStatus(threadId, "checkout", "done");
+        }
       }
 
       // A reused worktree is already recorded, and rewriting it could undo
@@ -419,6 +456,7 @@ const make = Effect.gen(function* () {
             threadId,
             branch,
             worktreePath,
+            ...(vcsWorkspace ? { vcsWorkspace } : {}),
           })
           .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
       }
@@ -581,29 +619,39 @@ const make = Effect.gen(function* () {
             // The thread forgets the worktree only once it is gone; a failed
             // removal leaves the directory for the user to clean up rather than
             // reusing a checkout that may be half written.
-            yield* git
-              .removeWorktree({ cwd: project.workspaceRoot, path: removedPath, force: true })
-              .pipe(
-                Effect.andThen(
-                  threads
-                    .dispatch({
-                      type: "thread.metadata.update",
-                      commandId: CommandId.make(`${input.commandId}:cancel-workspace`),
-                      threadId,
-                      worktreePath: null,
-                      branch: null,
-                    })
-                    .pipe(Effect.ignore),
-                ),
-                Effect.catchCause((removeCause) =>
-                  Effect.logWarning("Failed to remove an abandoned thread worktree", {
-                    commandId: input.commandId,
-                    threadId,
+            const removal: Effect.Effect<void, unknown> =
+              vcsWorkspace?.driverKind === "jj"
+                ? vcsWorkspaces.removeThreadWorkspace({
+                    cwd: project.workspaceRoot,
+                    workspace: vcsWorkspace,
+                  })
+                : git.removeWorktree({
+                    cwd: project.workspaceRoot,
                     path: removedPath,
-                    cause: removeCause,
-                  }),
-                ),
-              );
+                    force: true,
+                  });
+            yield* removal.pipe(
+              Effect.andThen(
+                threads
+                  .dispatch({
+                    type: "thread.metadata.update",
+                    commandId: CommandId.make(`${input.commandId}:cancel-workspace`),
+                    threadId,
+                    worktreePath: null,
+                    branch: null,
+                    vcsWorkspace: null,
+                  })
+                  .pipe(Effect.ignore),
+              ),
+              Effect.catchCause((removeCause) =>
+                Effect.logWarning("Failed to remove an abandoned thread worktree", {
+                  commandId: input.commandId,
+                  threadId,
+                  path: removedPath,
+                  cause: removeCause,
+                }),
+              ),
+            );
           }
         }),
       ),

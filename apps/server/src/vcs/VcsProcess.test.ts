@@ -426,6 +426,8 @@ describe("VcsProcess.run", () => {
           timedOut: false,
           stdoutTruncated: false,
           stderrTruncated: false,
+          stdoutInvalidUtf8: false,
+          stderrInvalidUtf8: false,
         }),
         {
           operation: "test.jj-stale-workspace",

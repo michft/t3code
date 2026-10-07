@@ -1785,7 +1785,7 @@ it.effect("reports unsupported jj versions with an actionable minimum", () => {
     ),
     Layer.provide(Layer.mock(VcsProcess.VcsProcess)(processMock)),
     Layer.provide(
-      sourceControlProviderRegistryTestLayer({
+      layerSourceControlProviderRegistryTest({
         process: processMock,
         bitbucket: {
           probeAuth: Effect.succeed({

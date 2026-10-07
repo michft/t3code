@@ -1,3 +1,4 @@
+import { getVcsPresentation } from "@t3tools/client-runtime/state/vcsPresentation";
 import { createNativeHeaderMenu } from "../../components/nativeHeaderMenu.ios";
 import type { ScreenHeaderMenu } from "../../components/ScreenHeader.types";
 import {
@@ -125,7 +126,9 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
   const threadId = props.threadId;
   const { gitStatus, gitOperationLabel, onPull, onRunAction } = props;
 
-  const currentBranchLabel = gitStatus?.refName ?? props.currentBranch ?? "Detached HEAD";
+  const vcsPresentation = getVcsPresentation(gitStatus?.driverKind ?? "git");
+  const currentBranchLabel =
+    gitStatus?.refName ?? props.currentBranch ?? vcsPresentation.currentRefFallback;
   const busy = gitOperationLabel !== null;
   const isRepo = gitStatus?.isRepo ?? true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
@@ -140,7 +143,13 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
         hint: "This workspace is not a git repository.",
       };
     }
-    const action = resolveQuickAction(gitStatus, busy, isDefaultRef, hasPrimaryRemote, props.publishRef);
+    const action = resolveQuickAction(
+      gitStatus,
+      busy,
+      isDefaultRef,
+      hasPrimaryRemote,
+      props.publishRef,
+    );
     return !canWriteSourceControl && (action.kind === "run_pull" || action.kind === "run_action")
       ? {
           ...action,
@@ -148,7 +157,15 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
           hint: "This connection cannot change source control.",
         }
       : action;
-  }, [busy, canWriteSourceControl, gitStatus, hasPrimaryRemote, isDefaultRef, isRepo, props.publishRef]);
+  }, [
+    busy,
+    canWriteSourceControl,
+    gitStatus,
+    hasPrimaryRemote,
+    isDefaultRef,
+    isRepo,
+    props.publishRef,
+  ]);
 
   const quickActionHint = quickAction.disabled
     ? (quickAction.hint ?? "This action is unavailable.")
@@ -266,6 +283,7 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
     currentBranchLabel,
     isRepo,
     openFiles,
+    vcsPresentation,
     openGitInspector,
     openReview,
     quickAction,
@@ -350,10 +368,10 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
         variant: "plain",
       },
       git: {
-        accessibilityLabel: "Git actions",
+        accessibilityLabel: `${model.vcsPresentation.systemLabel} actions`,
         icon: { name: "point.topleft.down.curvedto.point.bottomright.up", type: "sfSymbol" },
         identifier: "thread-right-git",
-        label: "Git",
+        label: model.vcsPresentation.systemLabel,
         menu: {
           items: [
             {
@@ -395,14 +413,14 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
                 ]
               : []),
             {
-              description: "Commit, files, branches",
+              description: `Changes, files, ${model.vcsPresentation.refPlural}`,
               icon: { name: "ellipsis", type: "sfSymbol" },
               label: "More",
               onPress: model.openGitInspector,
               type: "action",
             },
           ],
-          title: "Git",
+          title: model.vcsPresentation.systemLabel,
         },
         sharesBackground: true,
         type: "menu",
@@ -561,7 +579,7 @@ function threadGitMenuDefinition(
   model: ReturnType<typeof useThreadGitControlModel>,
 ): ScreenHeaderMenu {
   return {
-    title: "Git controls",
+    title: `${model.vcsPresentation.systemLabel} controls`,
     icon: "point.topleft.down.curvedto.point.bottomright.up",
     separateBackground: false,
     items: [
@@ -595,7 +613,7 @@ function threadGitMenuDefinition(
         id: "git-more",
         title: "More",
         icon: "ellipsis",
-        subtitle: "Commit, files, branches",
+        subtitle: `Changes, files, ${model.vcsPresentation.refPlural}`,
         onPress: model.openGitInspector,
       },
     ],

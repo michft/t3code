@@ -17,6 +17,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  VcsWorkspaceIdentity,
   ThreadLinkedPullRequest,
   ThreadPullRequestLink,
   TurnItemId,
@@ -45,6 +46,7 @@ interface LegacyThreadRow {
   readonly interaction_mode: string;
   readonly branch: string | null;
   readonly worktree_path: string | null;
+  readonly vcs_workspace_json: string | null;
   readonly created_at: string;
   readonly updated_at: string;
   readonly archived_at: string | null;
@@ -119,6 +121,7 @@ export class LegacyV1ThreadImporter extends Context.Service<
   LegacyV1ThreadImporterShape
 >()("t3/orchestration-v2/legacy/LegacyV1ThreadImporter") {}
 
+const decodeVcsWorkspace = Schema.decodeUnknownOption(VcsWorkspaceIdentity);
 const decodeModelSelection = Schema.decodeUnknownOption(ModelSelection);
 const decodeAttachments = Schema.decodeUnknownOption(Schema.Array(ChatAttachment));
 const decodePullRequests = Schema.decodeUnknownOption(Schema.Array(ThreadPullRequestLink));
@@ -191,6 +194,9 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
   const modelSelection = modelSelectionFor(row);
   const branch = row.branch?.trim() || null;
   const worktreePath = row.worktree_path?.trim() || null;
+  const workspace = row.vcs_workspace_json
+    ? decodeVcsWorkspace(parseJson(row.vcs_workspace_json))
+    : Option.none();
   const pullRequests = Option.getOrElse(
     decodePullRequests(parseJson(row.pull_requests_json)),
     () => [],
@@ -214,6 +220,7 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
     interactionMode: interactionModeFor(row.interaction_mode),
     branch,
     worktreePath,
+    ...(Option.isSome(workspace) ? { vcsWorkspace: workspace.value } : {}),
     linkedPullRequest,
     pullRequests: importedPullRequests,
     branchPullRequest: branchPullRequestFor(row),
@@ -452,6 +459,7 @@ const make = Effect.gen(function* () {
         thread.interaction_mode,
         thread.branch,
         thread.worktree_path,
+        thread.vcs_workspace_json,
         thread.created_at,
         thread.updated_at,
         thread.archived_at,
@@ -556,6 +564,7 @@ const make = Effect.gen(function* () {
         thread.interaction_mode,
         thread.branch,
         thread.worktree_path,
+        thread.vcs_workspace_json,
         thread.created_at,
         thread.updated_at,
         thread.archived_at,

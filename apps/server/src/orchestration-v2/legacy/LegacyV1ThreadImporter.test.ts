@@ -227,6 +227,15 @@ it.layer(layerTest)("LegacyV1ThreadImporter", (it) => {
             '2026-01-04T00:00:00.000Z', NULL)
       `;
 
+      const vcsWorkspace = {
+        driverKind: "jj",
+        name: "thread-jj",
+        rootPath: "/tmp/legacy-project",
+        repositoryPath: "/tmp/legacy-root",
+        workspaceRevision: { commitId: "abc", changeId: "abc" },
+        publishRef: null,
+      };
+      yield* sql`UPDATE projection_threads SET vcs_workspace_json = ${JSON.stringify(vcsWorkspace)} WHERE thread_id = ${threadId}`;
       assert.equal(yield* importer.pendingThreadCount, 1);
       const shellImport = yield* importer.reconcileShells;
       assert.equal(yield* importer.pendingThreadCount, 1);
@@ -248,6 +257,7 @@ it.layer(layerTest)("LegacyV1ThreadImporter", (it) => {
       assert.equal(shellProjection.thread.historyOrigin, "v1_import");
       assert.equal(shellProjection.thread.branch, "main");
       assert.equal(shellProjection.thread.worktreePath, "/tmp/legacy-project");
+      assert.deepStrictEqual(shellProjection.thread.vcsWorkspace, vcsWorkspace);
       assert.deepEqual(
         shellProjection.thread.pinnedAt,
         DateTime.makeUnsafe("2026-01-02T00:00:00.000Z"),

@@ -1,7 +1,7 @@
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Encoding from "effect/Encoding";
+import * as Hex from "effect/encoding/Hex";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -28,7 +28,7 @@ import {
   type JjChangedFileRecord,
   type JjRevisionRecord,
 } from "@t3tools/shared/jjCli";
-import { parseTurnDiffFilesFromUnifiedDiff } from "../checkpointing/Diffs.ts";
+import { parseTurnDiffFilesFromUnifiedDiff } from "./JjDiffs.ts";
 import * as JjProcess from "./JjProcess.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
@@ -40,7 +40,7 @@ const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
 const FILE_TEMPLATE = 'json(path) ++ "\\n"';
 const COUNT_TEMPLATE = 'commit_id ++ "\\n"';
-const encodeCheckpointMetadata = Schema.encodeEffect(Schema.UnknownFromJsonString);
+const encodeCheckpointMetadata = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 function dataContractError(operation: string, cwd: string, detail: string) {
   return new VcsProcessExitError({
@@ -320,7 +320,7 @@ export const make = Effect.gen(function* () {
 
   const hashDiff = (cwd: string, diff: string) =>
     crypto.digest("SHA-256", new TextEncoder().encode(diff)).pipe(
-      Effect.map(Encoding.encodeHex),
+      Effect.map(Hex.encode),
       Effect.mapError(() =>
         dataContractError("JjVcsDriver.getDiffPreview.hash", cwd, "Failed to hash jj review diff."),
       ),
@@ -862,7 +862,7 @@ export const make = Effect.gen(function* () {
 
   const checkpointMetadataRef = (cwd: string, checkpointRef: string) =>
     crypto.digest("SHA-256", new TextEncoder().encode(checkpointRef)).pipe(
-      Effect.map(Encoding.encodeHex),
+      Effect.map(Hex.encode),
       Effect.map((digest) => `refs/t3code/checkpoint-metadata/${digest}`),
       Effect.mapError(() =>
         dataContractError(

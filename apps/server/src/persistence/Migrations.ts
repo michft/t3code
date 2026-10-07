@@ -1,3 +1,5 @@
+import { reconcileForkJjMigration } from "./reconcileForkJjMigration.ts";
+import Migration0060 from "./Migrations/060_ForkThreadVcsWorkspace.ts";
 /**
  * Migration runner with an inline loader.
  *
@@ -146,6 +148,7 @@ export const migrationEntries = [
   [57, "ScheduledTaskWebhooks", Migration0057],
   [58, "WebhookRelayDeliveries", Migration0058],
   [59, "McpAppModelContext", Migration0059],
+  [60, "ForkThreadVcsWorkspace", Migration0060],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -182,6 +185,8 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  if (toMigrationInclusive === undefined || toMigrationInclusive >= 33)
+    yield* reconcileForkJjMigration();
   const previewMigrations =
     toMigrationInclusive === undefined || toMigrationInclusive >= 55
       ? yield* reconcileV2PreviewMigration()

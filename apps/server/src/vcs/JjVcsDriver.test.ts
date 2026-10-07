@@ -10,7 +10,7 @@ import { ChildProcessSpawner } from "effect/process";
 import { CheckpointRef, VcsProcessExitError, type VcsError } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as ServerConfig from "../config.ts";
-import { parseTurnDiffFilesFromUnifiedDiff } from "../checkpointing/Diffs.ts";
+import { parseTurnDiffFilesFromUnifiedDiff } from "./JjDiffs.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 import * as JjProcess from "./JjProcess.ts";
 import * as JjVcsDriver from "./JjVcsDriver.ts";
@@ -19,7 +19,7 @@ import * as VcsProcess from "./VcsProcess.ts";
 import { runVcsDriverContractSuite } from "./testing/VcsDriverContractHarness.ts";
 
 const JjContractLayer = JjVcsDriver.layer.pipe(Layer.provideMerge(NodeServices.layer));
-const GitReviewLayer = GitVcsDriver.vcsLayer.pipe(
+const GitReviewLayer = GitVcsDriver.layerVcs.pipe(
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-vcs-review-equivalence-" })),
   Layer.provideMerge(VcsProcess.layer),
   Layer.provideMerge(NodeServices.layer),

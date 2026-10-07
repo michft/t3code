@@ -29,7 +29,6 @@ import type {
   GitPreparePullRequestThreadInput,
   GitRunStackedActionInput,
   ModelSelection,
-  ThreadId,
   VcsNamedRef,
 } from "@t3tools/contracts";
 

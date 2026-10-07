@@ -86,22 +86,6 @@ function layerTestFor(state: {
     Layer.provide(layerBackgroundPolicy(() => state.backgroundWorkEnabled !== false)),
     Layer.provide(
       Layer.mock(GitWorkflowService.GitWorkflowService)({
-        status: () =>
-          Effect.sync(() => {
-            state.localStatusCalls += 1;
-            state.remoteStatusCalls += 1;
-            state.remoteStatusRefreshUpstreamValues?.push(undefined);
-            return {
-              ...state.currentLocalStatus,
-              ...(state.currentRemoteStatus ?? {
-                hasUpstream: false,
-                aheadCount: 0,
-                behindCount: 0,
-                aheadOfDefaultCount: 0,
-                pr: null,
-              }),
-            };
-          }),
         localStatus: () =>
           Effect.sync(() => {
             state.localStatusCalls += 1;
@@ -247,7 +231,7 @@ describe("VcsStatusBroadcaster", () => {
       assert.deepStrictEqual(first, baseStatus);
       assert.deepStrictEqual(second, baseStatus);
       assert.equal(state.localStatusCalls, 1);
-      assert.equal(state.remoteStatusCalls, 2);
+      assert.equal(state.remoteStatusCalls, 1);
       assert.equal(state.localInvalidationCalls, 0);
       assert.equal(state.remoteInvalidationCalls, 0);
     }).pipe(Effect.provide(layerTestFor(state)));
@@ -431,7 +415,7 @@ describe("VcsStatusBroadcaster", () => {
         ...state.currentRemoteStatus,
       });
       assert.equal(state.localStatusCalls, 2);
-      assert.equal(state.remoteStatusCalls, 4);
+      assert.equal(state.remoteStatusCalls, 2);
       assert.equal(state.localInvalidationCalls, 1);
       assert.equal(state.remoteInvalidationCalls, 1);
     }).pipe(Effect.provide(layerTestFor(state)));
@@ -475,7 +459,7 @@ describe("VcsStatusBroadcaster", () => {
         local: baseLocalStatus,
         remote: null,
       } satisfies VcsStatusStreamEvent);
-    }).pipe(Effect.provide(makeTestLayer(state)));
+    }).pipe(Effect.provide(layerTestFor(state)));
   });
 
   it.effect("keeps the cached snapshot unchanged when a refresh branch fails", () => {
@@ -493,23 +477,6 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(layerBackgroundPolicy(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
-          status: () =>
-            Effect.suspend(() => {
-              state.localStatusCalls += 1;
-              state.remoteStatusCalls += 1;
-              return state.failRemoteStatus
-                ? Effect.fail(
-                    new GitManagerError({
-                      operation: "VcsStatusBroadcaster.test",
-                      cwd: "/repo",
-                      detail: "remote status failed",
-                    }),
-                  )
-                : Effect.succeed({
-                    ...state.currentLocalStatus,
-                    ...state.currentRemoteStatus,
-                  });
-            }),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -597,7 +564,7 @@ describe("VcsStatusBroadcaster", () => {
         ...baseRemoteStatus,
       });
       assert.equal(state.localStatusCalls, 2);
-      assert.equal(state.remoteStatusCalls, 2);
+      assert.equal(state.remoteStatusCalls, 1);
       assert.equal(state.localInvalidationCalls, 1);
       assert.equal(state.remoteInvalidationCalls, 0);
     }).pipe(Effect.provide(layerTestFor(state)));
@@ -927,15 +894,15 @@ describe("VcsStatusBroadcaster", () => {
       ).pipe(Effect.forkIn(scope));
 
       yield* Deferred.await(snapshotDeferred);
-      assert.equal(state.remoteStatusCalls, 2);
+      assert.equal(state.remoteStatusCalls, 1);
       assert.equal(state.remoteInvalidationCalls, 0);
 
       yield* TestClock.adjust(Duration.seconds(59));
-      assert.equal(state.remoteStatusCalls, 2);
+      assert.equal(state.remoteStatusCalls, 1);
 
       yield* TestClock.adjust(Duration.seconds(1));
       yield* Effect.yieldNow;
-      assert.equal(state.remoteStatusCalls, 3);
+      assert.equal(state.remoteStatusCalls, 2);
       assert.equal(state.remoteInvalidationCalls, 1);
 
       yield* Scope.close(scope, Exit.void);

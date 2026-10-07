@@ -270,7 +270,9 @@ const layerPersistence = Layer.empty.pipe(Layer.provideMerge(SqlitePersistence.l
 
 const layerVcsDriverRegistry = VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer));
 
-const layerVcsGitProviderCompatibility = VcsGitProviderCompatibility.layer.pipe(Layer.provide(GitVcsDriver.layer));
+const layerVcsGitProviderCompatibility = VcsGitProviderCompatibility.layer.pipe(
+  Layer.provide(GitVcsDriver.layer),
+);
 const layerVcsChange = VcsChangeService.layer.pipe(Layer.provideMerge(layerVcsDriverRegistry));
 const layerVcsSync = VcsSyncService.layer.pipe(Layer.provideMerge(layerVcsDriverRegistry));
 const layerVcsReview = VcsReviewService.layer.pipe(Layer.provideMerge(layerVcsDriverRegistry));
@@ -286,6 +288,7 @@ const layerSourceControlProviderRegistry = SourceControlProviderRegistry.layer.p
       ForgejoCli.layer,
     ),
   ),
+  Layer.provideMerge(layerVcsGitProviderCompatibility),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerVcsDriverRegistry),
 );
@@ -370,9 +373,13 @@ const layerProjectCloneTracker = ProjectCloneTracker.layer.pipe(
   Layer.provide(layerSourceControlRepositoryService),
 );
 
-const layerVcsWorkspace = VcsWorkspaceService.layer.pipe(Layer.provideMerge(layerVcsDriverRegistry), Layer.provideMerge(layerGitWorkflow));
+const layerVcsWorkspace = VcsWorkspaceService.layer.pipe(
+  Layer.provideMerge(layerVcsDriverRegistry),
+  Layer.provideMerge(layerGitWorkflow),
+);
 
 const layerReview = ReviewService.layer.pipe(
+  Layer.provideMerge(layerVcsGitProviderCompatibility),
   Layer.provideMerge(layerVcsGitProviderCompatibility),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerVcsDriverRegistry),
@@ -486,7 +493,8 @@ const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
   Layer.provide(ProviderEventIngestor.layerAnalytics),
   Layer.provide(layerCheckpointStore),
   Layer.provide(layerGitWorkflow),
-  Layer.provide(ResourceCleanupService.layer),
+  Layer.provide(ResourceCleanupService.layer.pipe(Layer.provide(layerVcsWorkspace))),
+  Layer.provide(layerVcsWorkspace),
   Layer.provide(
     RunFinalizationService.layerObserver.pipe(
       Layer.provide(ProjectionStoreV2.layer),

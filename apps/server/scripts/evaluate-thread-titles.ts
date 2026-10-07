@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import * as VcsGitProviderCompatibility from "../src/vcs/VcsGitProviderCompatibility.ts";
 // This CLI uses Node argument parsing and random ordering at the application boundary.
 // @effect-diagnostics nodeBuiltinImport:off
 // Run with --model <configured-model> --out /tmp/title-eval.
@@ -163,6 +164,7 @@ await Effect.runPromise(
           // Default settings: no saved Bitbucket token, gh's own GitHub account choice.
           Layer.provide(ServerSettings.layerTest()),
           Layer.provide(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer))),
+          Layer.provide(VcsGitProviderCompatibility.layer.pipe(Layer.provide(GitVcsDriver.layer))),
           Layer.provide(GitVcsDriver.layer),
           Layer.provide(VcsProcess.layer),
           Layer.provide(FetchHttpClient.layer),

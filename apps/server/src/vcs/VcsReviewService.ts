@@ -1,4 +1,5 @@
-import * as NodeCrypto from "node:crypto";
+import { sha256 } from "@noble/hashes/sha2";
+import * as Hex from "effect/encoding/Hex";
 
 import { VcsWorkflowError, type ThreadId } from "@t3tools/contracts";
 import {
@@ -214,7 +215,7 @@ export const make = Effect.gen(function* () {
           const preferredName = remoteName || bookmarkName;
           const collision = remotes.remotes.find((remote) => remote.name === preferredName);
           remoteName = collision
-            ? `${preferredName}-${NodeCrypto.createHash("sha256").update(input.remoteUrl).digest("hex").slice(0, 8)}`
+            ? `${preferredName}-${Hex.encode(sha256(new TextEncoder().encode(input.remoteUrl))).slice(0, 8)}`
             : preferredName;
           yield* driver.addRemote({ cwd: input.cwd, name: remoteName, url: input.remoteUrl });
         }
@@ -270,10 +271,9 @@ export const make = Effect.gen(function* () {
           detail: "A thread id is required for an isolated Jujutsu workspace.",
         });
       }
-      const workspaceName = `t3code-${NodeCrypto.createHash("sha256")
-        .update(input.threadId, "utf8")
-        .digest("hex")
-        .slice(0, 20)}`;
+      const workspaceName = `t3code-${Hex.encode(
+        sha256(new TextEncoder().encode(input.threadId)),
+      ).slice(0, 20)}`;
       const workspacePath = path.join(worktreesDir, path.basename(repositoryRoot), workspaceName);
       if (yield* fileSystem.exists(workspacePath)) {
         const existing = yield* readRevision(driver, workspacePath, "@").pipe(Effect.option);

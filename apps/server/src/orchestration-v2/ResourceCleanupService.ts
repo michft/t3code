@@ -1,3 +1,5 @@
+import type { VcsWorkspaceIdentity } from "@t3tools/contracts";
+import * as VcsWorkspaceService from "../vcs/VcsWorkspaceService.ts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -11,7 +13,7 @@ import * as TerminalManager from "../terminal/Manager.ts";
 export class ResourceCleanupError extends Schema.TaggedError<ResourceCleanupError>()(
   "ResourceCleanupError",
   {
-    operation: Schema.Literals(["terminal", "attachment"]),
+    operation: Schema.Literals(["terminal", "attachment", "workspace"]),
     threadId: Schema.optional(Schema.String),
     attachmentId: Schema.optional(Schema.String),
     cause: Schema.Defect(),
@@ -19,7 +21,10 @@ export class ResourceCleanupError extends Schema.TaggedError<ResourceCleanupErro
 ) {}
 
 export class ResourceCleanupService extends Context.Reference<{
-  readonly cleanupTerminals: (threadId: string) => Effect.Effect<void, ResourceCleanupError>;
+  readonly cleanupTerminals: (
+    threadId: string,
+    workspace?: VcsWorkspaceIdentity,
+  ) => Effect.Effect<void, ResourceCleanupError>;
   readonly cleanupAttachments: (
     attachmentIds: ReadonlyArray<string>,
   ) => Effect.Effect<void, ResourceCleanupError>;
@@ -36,15 +41,30 @@ export const layer = Layer.effect(
     const terminals = yield* TerminalManager.TerminalManager;
     const fileSystem = yield* FileSystem.FileSystem;
     const config = yield* ServerConfig.ServerConfig;
+    const workspaces = yield* VcsWorkspaceService.VcsWorkspaceService;
     return {
-      cleanupTerminals: (threadId: string) =>
-        terminals
-          .close({ threadId, deleteHistory: true })
-          .pipe(
-            Effect.mapError(
-              (cause) => new ResourceCleanupError({ operation: "terminal", threadId, cause }),
-            ),
-          ),
+      cleanupTerminals: (threadId: string, workspace?: VcsWorkspaceIdentity) =>
+        Effect.gen(function* () {
+          yield* terminals
+            .close({ threadId, deleteHistory: true })
+            .pipe(
+              Effect.mapError(
+                (cause) => new ResourceCleanupError({ operation: "terminal", threadId, cause }),
+              ),
+            );
+          if (workspace?.driverKind === "jj") {
+            yield* workspaces
+              .removeThreadWorkspace({
+                cwd: workspace.repositoryPath ?? workspace.rootPath,
+                workspace,
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) => new ResourceCleanupError({ operation: "workspace", threadId, cause }),
+                ),
+              );
+          }
+        }),
       cleanupAttachments: (attachmentIds: ReadonlyArray<string>) =>
         Effect.forEach(
           attachmentIds,

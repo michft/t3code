@@ -213,7 +213,12 @@ export const planThreadDeletion = Effect.fn("ThreadDeletion.planThreadDeletion")
     id: `effect:${command.commandId}:terminal.cleanup`,
     commandId: command.commandId,
     threadId: command.threadId,
-    request: { type: "terminal.cleanup" },
+    request: {
+      type: "terminal.cleanup",
+      ...(projection.thread.vcsWorkspace?.driverKind === "jj"
+        ? { vcsWorkspace: projection.thread.vcsWorkspace }
+        : {}),
+    },
   });
   const attachmentIds = Array.from(new Set(input.attachmentIds));
   if (attachmentIds.length > 0) {

@@ -1,3 +1,4 @@
+import * as VcsWorkspaceService from "../vcs/VcsWorkspaceService.ts";
 import { expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
 import {
@@ -89,51 +90,59 @@ it("does not commit running state when inherited background routing cannot be re
   const startRootRun = vi.fn(() => Effect.void);
   const pruneWorktrees = vi.fn(() => Effect.void);
   const createWorktree = vi.fn(() => Effect.succeed({} as never));
-  const layer = ProviderTurnStart.layer.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
-        Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
-        IdAllocator.layer,
-        Layer.succeed(FileSystem.FileSystem, { exists: () => Effect.succeed(false) } as never),
-        Layer.mock(GitWorkflow.GitWorkflowService)({ pruneWorktrees, createWorktree }),
-        Layer.mock(ProjectService.ProjectService)({
-          getById: () =>
-            Effect.succeed(
-              Option.some({ workspaceRoot: "/tmp/provider-turn-start-project" } as never),
-            ),
+  const layer = ProviderTurnStart.layer
+    .pipe(
+      Layer.provide(
+        Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({
+          detectKind: () => Effect.succeed("git"),
         }),
-        Layer.mock(ProjectionStore.ProjectionStoreV2)({
-          getTurnStartContext: () => {
-            projectionReadCount += 1;
-            return Effect.succeed({
-              ...projection,
-              hasConversation: projection.messages.some(
-                (m) =>
-                  m.role === "user" &&
-                  (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
-              ),
-            });
-          },
-          getRuntimeRecoveryProjection: () => {
-            projectionReadCount += 1;
-            return Effect.fail(
-              new ProjectionStore.ProjectionStoreReadError({
-                threadId,
-                cause: "simulated inherited-background projection failure",
-              }),
-            );
-          },
-        }),
-        Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({}),
-        Layer.mock(ProviderAuthService.ProviderAuthService)({
-          tryHandlePromptCommand: () => Effect.succeed(false),
-        }),
-        Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
-        Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
       ),
-    ),
-  );
+    )
+    .pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
+          Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
+          IdAllocator.layer,
+          Layer.succeed(FileSystem.FileSystem, { exists: () => Effect.succeed(false) } as never),
+          Layer.mock(GitWorkflow.GitWorkflowService)({ pruneWorktrees, createWorktree }),
+          Layer.mock(ProjectService.ProjectService)({
+            getById: () =>
+              Effect.succeed(
+                Option.some({ workspaceRoot: "/tmp/provider-turn-start-project" } as never),
+              ),
+          }),
+          Layer.mock(ProjectionStore.ProjectionStoreV2)({
+            getTurnStartContext: () => {
+              projectionReadCount += 1;
+              return Effect.succeed({
+                ...projection,
+                hasConversation: projection.messages.some(
+                  (m) =>
+                    m.role === "user" &&
+                    (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
+                ),
+              });
+            },
+            getRuntimeRecoveryProjection: () => {
+              projectionReadCount += 1;
+              return Effect.fail(
+                new ProjectionStore.ProjectionStoreReadError({
+                  threadId,
+                  cause: "simulated inherited-background projection failure",
+                }),
+              );
+            },
+          }),
+          Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({}),
+          Layer.mock(ProviderAuthService.ProviderAuthService)({
+            tryHandlePromptCommand: () => Effect.succeed(false),
+          }),
+          Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
+          Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
+        ),
+      ),
+    );
 
   await Effect.gen(function* () {
     const error = yield* (yield* ProviderTurnStart.ProviderTurnStartServiceV2)
@@ -483,53 +492,61 @@ function makeLocalCommandHarness(input: {
           return { committed, storedEvents: [] };
         }),
   );
-  const layer = ProviderTurnStart.layer.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
-          prepareProviderHandoff: () => Effect.die("history read must fail first"),
-        }),
-        Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
-        IdAllocator.layer,
-        FileSystem.layerNoop({}),
-        Layer.mock(GitWorkflow.GitWorkflowService)({}),
-        Layer.mock(ProjectService.ProjectService)({}),
-        Layer.mock(ProjectionStore.ProjectionStoreV2)({
-          getTurnStartContext: () =>
-            Effect.succeed({
-              ...projection,
-              hasConversation: projection.messages.some(
-                (m) =>
-                  m.role === "user" &&
-                  (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
-              ),
-            }),
-          getRuntimeRecoveryProjection: () =>
-            Effect.as(failReadIfRunning, {
-              ...projection,
-              hasConversation: projection.messages.some(
-                (m) =>
-                  m.role === "user" &&
-                  (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
-              ),
-            }),
-          getTurnStartHistory: () =>
-            Effect.fail(
-              new ProjectionStore.ProjectionStoreReadError({
-                threadId,
-                cause: input.historyReadFailureAfterFallback,
-              }),
-            ),
-        }),
-        Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({ open }),
-        Layer.mock(ProviderAuthService.ProviderAuthService)({ tryHandlePromptCommand }),
-        Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
-        Layer.mock(RuntimePolicy.RuntimePolicyV2)({
-          resolve: () => Effect.succeed({} as never),
+  const layer = ProviderTurnStart.layer
+    .pipe(
+      Layer.provide(
+        Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({
+          detectKind: () => Effect.succeed("git"),
         }),
       ),
-    ),
-  );
+    )
+    .pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
+            prepareProviderHandoff: () => Effect.die("history read must fail first"),
+          }),
+          Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
+          IdAllocator.layer,
+          FileSystem.layerNoop({}),
+          Layer.mock(GitWorkflow.GitWorkflowService)({}),
+          Layer.mock(ProjectService.ProjectService)({}),
+          Layer.mock(ProjectionStore.ProjectionStoreV2)({
+            getTurnStartContext: () =>
+              Effect.succeed({
+                ...projection,
+                hasConversation: projection.messages.some(
+                  (m) =>
+                    m.role === "user" &&
+                    (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
+                ),
+              }),
+            getRuntimeRecoveryProjection: () =>
+              Effect.as(failReadIfRunning, {
+                ...projection,
+                hasConversation: projection.messages.some(
+                  (m) =>
+                    m.role === "user" &&
+                    (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
+                ),
+              }),
+            getTurnStartHistory: () =>
+              Effect.fail(
+                new ProjectionStore.ProjectionStoreReadError({
+                  threadId,
+                  cause: input.historyReadFailureAfterFallback,
+                }),
+              ),
+          }),
+          Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({ open }),
+          Layer.mock(ProviderAuthService.ProviderAuthService)({ tryHandlePromptCommand }),
+          Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
+          Layer.mock(RuntimePolicy.RuntimePolicyV2)({
+            resolve: () => Effect.succeed({} as never),
+          }),
+        ),
+      ),
+    );
   return {
     open,
     writeIfRunCurrent,

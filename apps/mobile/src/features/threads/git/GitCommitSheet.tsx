@@ -99,7 +99,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
       ) : null}
       {Platform.OS === "android" ? (
         <AndroidSheetHeader
-          title="Commit changes"
+          title={isJjRepository ? "Finalize change" : "Commit changes"}
           onBack={() => navigation.goBack()}
           hideBottomBorder
         />
@@ -165,7 +165,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
 
             {allFiles.length === 0 ? (
               <Text className="text-foreground-secondary text-sm leading-normal">
-                No changed files are available to commit.
+                No changed files are available.
               </Text>
             ) : !isEditingFiles ? (
               <View className="gap-2">
@@ -287,7 +287,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
             <View className="ios:flex-1">
               <SheetActionButton
                 icon="arrow.branch"
-                label="Commit on new branch"
+                label={isJjRepository ? "Finalize with new bookmark" : "Commit on new branch"}
                 disabled={!canChangeThreadBranch || noneSelected || busy}
                 onPress={() => void runCommitAction(true)}
               />
@@ -295,7 +295,13 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
             <View className="ios:flex-1">
               <SheetActionButton
                 icon="checkmark.circle"
-                label="Commit"
+                label={
+                  isJjRepository
+                    ? hasJjPublishRef
+                      ? "Finalize & push"
+                      : "Finalize change"
+                    : "Commit"
+                }
                 tone="primary"
                 disabled={!canWriteSourceControl || noneSelected || busy}
                 onPress={() => void runCommitAction(false)}
