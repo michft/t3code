@@ -1,4 +1,5 @@
-import * as NodeCrypto from "node:crypto";
+import { sha256 } from "@noble/hashes/sha2";
+import * as Hex from "effect/encoding/Hex";
 
 import {
   VcsWorkflowError,
@@ -54,6 +55,7 @@ export interface RemoveThreadWorkspaceInput {
 export class VcsWorkspaceService extends Context.Service<
   VcsWorkspaceService,
   {
+    readonly detectKind: (cwd: string) => Effect.Effect<VcsDriverKind, VcsWorkflowError>;
     readonly createThreadWorkspace: (
       input: CreateThreadWorkspaceInput,
     ) => Effect.Effect<VcsWorkspaceIdentity, VcsWorkflowError>;
@@ -67,7 +69,7 @@ export class VcsWorkspaceService extends Context.Service<
 >()("t3/vcs/VcsWorkspaceService") {}
 
 export function jjWorkspaceNameForThread(threadId: ThreadId): string {
-  const digest = NodeCrypto.createHash("sha256").update(threadId, "utf8").digest("hex");
+  const digest = Hex.encode(sha256(new TextEncoder().encode(threadId)));
   return `t3code-${digest.slice(0, 20)}`;
 }
 
@@ -166,7 +168,7 @@ function sameRevision(left: VcsRevision | null | undefined, right: VcsRevision |
 
 const isVcsWorkflowError = Schema.is(VcsWorkflowError);
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -219,22 +221,24 @@ export const make = Effect.gen(function* () {
     cwd: string,
   ) {
     return yield* readJjRevision(driver, cwd, "@").pipe(
-      Effect.catchTag("VcsProcessExitError", (cause) => {
-        if (cause.failureKind !== "stale-workspace") {
-          return Effect.fail(cause);
-        }
-        return Effect.logInfo("repairing stale Jujutsu thread workspace", { cwd }).pipe(
-          Effect.andThen(
-            driver.execute({
-              operation: "VcsWorkspaceService.updateStale",
-              cwd,
-              args: ["workspace", "update-stale"],
-              timeoutMs: 20_000,
-              maxOutputBytes: 256 * 1024,
-            }),
-          ),
-          Effect.andThen(readJjRevision(driver, cwd, "@")),
-        );
+      Effect.catchTags({
+        VcsProcessExitError: (cause) => {
+          if (cause.failureKind !== "stale-workspace") {
+            return Effect.fail(cause);
+          }
+          return Effect.logInfo("repairing stale Jujutsu thread workspace", { cwd }).pipe(
+            Effect.andThen(
+              driver.execute({
+                operation: "VcsWorkspaceService.updateStale",
+                cwd,
+                args: ["workspace", "update-stale"],
+                timeoutMs: 20_000,
+                maxOutputBytes: 256 * 1024,
+              }),
+            ),
+            Effect.andThen(readJjRevision(driver, cwd, "@")),
+          );
+        },
       }),
     );
   });
@@ -266,6 +270,7 @@ export const make = Effect.gen(function* () {
       driverKind: "jj" as const,
       name: input.name,
       rootPath: input.workspacePath,
+      repositoryPath: input.cwd,
       workspaceRevision: toRevision(revision),
       baseRevision: input.baseRevision ?? actualBase,
       publishRef: input.publishRef
@@ -421,6 +426,7 @@ export const make = Effect.gen(function* () {
         driverKind: "git",
         name: created.worktree.refName,
         rootPath: created.worktree.path,
+        repositoryPath: input.cwd,
         workspaceRevision: { commitId: currentCommit },
         baseRevision: { commitId: baseCommit },
         publishRef: {
@@ -565,6 +571,13 @@ export const make = Effect.gen(function* () {
   );
 
   return VcsWorkspaceService.of({
+    detectKind: (cwd) =>
+      registry.detect({ cwd }).pipe(
+        Effect.map((handle) => handle?.kind ?? "git"),
+        Effect.mapError((cause) =>
+          workspaceError({ operation: "detect", kind: "unknown", detail: errorDetail(cause) }),
+        ),
+      ),
     createThreadWorkspace,
     ensureThreadWorkspace,
     removeThreadWorkspace,

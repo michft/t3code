@@ -35,7 +35,7 @@ const gitLabCliDecodeErrorContext = {
   cause: Schema.Defect(),
 };
 
-export class GitLabCliUnavailableError extends Schema.TaggedErrorClass<GitLabCliUnavailableError>()(
+export class GitLabCliUnavailableError extends Schema.TaggedError<GitLabCliUnavailableError>()(
   "GitLabCliUnavailableError",
   gitLabCliExecutionErrorContext,
 ) {
@@ -48,7 +48,7 @@ export class GitLabCliUnavailableError extends Schema.TaggedErrorClass<GitLabCli
   }
 }
 
-export class GitLabCliAuthenticationError extends Schema.TaggedErrorClass<GitLabCliAuthenticationError>()(
+export class GitLabCliAuthenticationError extends Schema.TaggedError<GitLabCliAuthenticationError>()(
   "GitLabCliAuthenticationError",
   gitLabCliExecutionErrorContext,
 ) {
@@ -61,7 +61,20 @@ export class GitLabCliAuthenticationError extends Schema.TaggedErrorClass<GitLab
   }
 }
 
-export class GitLabMergeRequestNotFoundError extends Schema.TaggedErrorClass<GitLabMergeRequestNotFoundError>()(
+export class GitLabCliRateLimitError extends Schema.TaggedError<GitLabCliRateLimitError>()(
+  "GitLabCliRateLimitError",
+  gitLabCliExecutionErrorContext,
+) {
+  get detail(): string {
+    return "GitLab API rate limit exceeded.";
+  }
+
+  override get message(): string {
+    return `GitLab CLI failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
+export class GitLabMergeRequestNotFoundError extends Schema.TaggedError<GitLabMergeRequestNotFoundError>()(
   "GitLabMergeRequestNotFoundError",
   {
     ...gitLabCliExecutionErrorContext,
@@ -100,7 +113,7 @@ export class GitLabMergeRequestNotFoundError extends Schema.TaggedErrorClass<Git
   }
 }
 
-export class GitLabCliCommandError extends Schema.TaggedErrorClass<GitLabCliCommandError>()(
+export class GitLabCliCommandError extends Schema.TaggedError<GitLabCliCommandError>()(
   "GitLabCliCommandError",
   gitLabCliExecutionErrorContext,
 ) {
@@ -122,10 +135,24 @@ export class GitLabCliCommandError extends Schema.TaggedErrorClass<GitLabCliComm
   ): GitLabCliError {
     return Match.valueTags(error, {
       VcsProcessSpawnError: (cause) => new GitLabCliUnavailableError({ ...context, cause }),
-      VcsProcessExitError: (cause) =>
-        cause.failureKind === "authentication"
-          ? new GitLabCliAuthenticationError({ ...context, cause })
-          : new GitLabCliCommandError({ ...context, cause }),
+      VcsProcessExitError: (cause) => {
+        switch (cause.failureKind) {
+          case "authentication":
+            return new GitLabCliAuthenticationError({ ...context, cause });
+          case "rate-limited":
+            return new GitLabCliRateLimitError({ ...context, cause });
+          case "not-found":
+          case "not-repository":
+          case "stale-workspace":
+          case "unresolved-revision":
+          case "bookmark-conflict":
+          case "push-rejected":
+          case "invalid-ref":
+          case "command-failed":
+          case undefined:
+            return new GitLabCliCommandError({ ...context, cause });
+        }
+      },
       VcsProcessTimeoutError: (cause) => new GitLabCliCommandError({ ...context, cause }),
       VcsProcessStdinWriteError: (cause) => new GitLabCliCommandError({ ...context, cause }),
       VcsProcessOutputReadError: (cause) => new GitLabCliCommandError({ ...context, cause }),
@@ -138,7 +165,7 @@ export class GitLabCliCommandError extends Schema.TaggedErrorClass<GitLabCliComm
   }
 }
 
-export class GitLabMergeRequestListDecodeError extends Schema.TaggedErrorClass<GitLabMergeRequestListDecodeError>()(
+export class GitLabMergeRequestListDecodeError extends Schema.TaggedError<GitLabMergeRequestListDecodeError>()(
   "GitLabMergeRequestListDecodeError",
   {
     ...gitLabCliDecodeErrorContext,
@@ -154,7 +181,7 @@ export class GitLabMergeRequestListDecodeError extends Schema.TaggedErrorClass<G
   }
 }
 
-export class GitLabMergeRequestDecodeError extends Schema.TaggedErrorClass<GitLabMergeRequestDecodeError>()(
+export class GitLabMergeRequestDecodeError extends Schema.TaggedError<GitLabMergeRequestDecodeError>()(
   "GitLabMergeRequestDecodeError",
   {
     ...gitLabCliDecodeErrorContext,
@@ -171,7 +198,7 @@ export class GitLabMergeRequestDecodeError extends Schema.TaggedErrorClass<GitLa
   }
 }
 
-export class GitLabRepositoryDecodeError extends Schema.TaggedErrorClass<GitLabRepositoryDecodeError>()(
+export class GitLabRepositoryDecodeError extends Schema.TaggedError<GitLabRepositoryDecodeError>()(
   "GitLabRepositoryDecodeError",
   {
     ...gitLabCliDecodeErrorContext,
@@ -188,7 +215,7 @@ export class GitLabRepositoryDecodeError extends Schema.TaggedErrorClass<GitLabR
   }
 }
 
-export class GitLabNamespaceDecodeError extends Schema.TaggedErrorClass<GitLabNamespaceDecodeError>()(
+export class GitLabNamespaceDecodeError extends Schema.TaggedError<GitLabNamespaceDecodeError>()(
   "GitLabNamespaceDecodeError",
   {
     ...gitLabCliDecodeErrorContext,
@@ -208,6 +235,7 @@ export class GitLabNamespaceDecodeError extends Schema.TaggedErrorClass<GitLabNa
 export const GitLabCliError = Schema.Union([
   GitLabCliUnavailableError,
   GitLabCliAuthenticationError,
+  GitLabCliRateLimitError,
   GitLabMergeRequestNotFoundError,
   GitLabCliCommandError,
   GitLabMergeRequestListDecodeError,
@@ -216,7 +244,6 @@ export const GitLabCliError = Schema.Union([
   GitLabNamespaceDecodeError,
 ]);
 export type GitLabCliError = typeof GitLabCliError.Type;
-export const isGitLabCliError = Schema.is(GitLabCliError);
 
 export interface GitLabMergeRequestSummary {
   readonly number: number;
@@ -225,6 +252,9 @@ export interface GitLabMergeRequestSummary {
   readonly baseRefName: string;
   readonly headRefName: string;
   readonly state?: "open" | "closed" | "merged";
+  readonly isDraft?: boolean;
+  readonly closedAt?: string | null;
+  readonly mergedAt?: string | null;
   readonly updatedAt?: Option.Option<DateTime.Utc>;
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
@@ -244,6 +274,9 @@ export class GitLabCli extends Context.Service<
       readonly cwd: string;
       readonly args: ReadonlyArray<string>;
       readonly timeoutMs?: number;
+      /** Piped to the child's stdin, for payloads that must never appear in argv. */
+      readonly stdin?: string;
+      readonly maxOutputBytes?: number;
     }) => Effect.Effect<VcsProcess.VcsProcessOutput, GitLabCliError>;
 
     readonly listMergeRequests: (input: {
@@ -382,6 +415,7 @@ function parseRepositoryPath(repository: string): {
   return { namespacePath, projectPath };
 }
 
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const process = yield* VcsProcess.VcsProcess;
 
@@ -396,6 +430,8 @@ export const make = Effect.gen(function* () {
         args: input.args,
         cwd: input.cwd,
         timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        ...(input.stdin === undefined ? {} : { stdin: input.stdin }),
+        ...(input.maxOutputBytes === undefined ? {} : { maxOutputBytes: input.maxOutputBytes }),
       })
       .pipe(Effect.mapError(mapError));
 

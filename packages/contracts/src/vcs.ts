@@ -38,6 +38,7 @@ export type VcsDriverCapabilities = typeof VcsDriverCapabilities.Type;
 export const VcsRepositoryIdentity = Schema.Struct({
   kind: VcsDriverKind,
   rootPath: TrimmedNonEmptyString,
+  repositoryPath: Schema.optional(TrimmedNonEmptyString),
   metadataPath: Schema.NullOr(TrimmedNonEmptyString),
   colocated: Schema.optional(Schema.Boolean),
   freshness: VcsFreshness,
@@ -135,6 +136,7 @@ export const VcsWorkspaceIdentity = Schema.Struct({
   driverKind: VcsDriverKind,
   name: Schema.NullOr(TrimmedNonEmptyString),
   rootPath: TrimmedNonEmptyString,
+  repositoryPath: Schema.optional(TrimmedNonEmptyString),
   workspaceRevision: Schema.NullOr(VcsRevision),
   baseRevision: Schema.optional(Schema.NullOr(VcsRevision)),
   publishRef: Schema.NullOr(VcsNamedRef),
@@ -158,16 +160,13 @@ export type VcsThreadWorkspace = typeof VcsThreadWorkspace.Type;
 export const VcsWorkflowKind = Schema.Literals(["change", "workspace", "sync", "checkpoint"]);
 export type VcsWorkflowKind = typeof VcsWorkflowKind.Type;
 
-export class VcsWorkflowError extends Schema.TaggedErrorClass<VcsWorkflowError>()(
-  "VcsWorkflowError",
-  {
-    workflow: VcsWorkflowKind,
-    operation: TrimmedNonEmptyString,
-    kind: VcsDriverKind,
-    detail: TrimmedNonEmptyString,
-    recoverable: Schema.Boolean,
-  },
-) {
+export class VcsWorkflowError extends Schema.TaggedError<VcsWorkflowError>()("VcsWorkflowError", {
+  workflow: VcsWorkflowKind,
+  operation: TrimmedNonEmptyString,
+  kind: VcsDriverKind,
+  detail: TrimmedNonEmptyString,
+  recoverable: Schema.Boolean,
+}) {
   override get message(): string {
     return `VCS ${this.workflow} workflow failed in ${this.operation}: ${this.detail}`;
   }
@@ -227,6 +226,7 @@ export interface VcsProcessTimeoutFailure {
 export const VcsProcessExitFailureKind = Schema.Literals([
   "authentication",
   "not-found",
+  "rate-limited",
   "not-repository",
   "stale-workspace",
   "unresolved-revision",
@@ -243,7 +243,7 @@ export interface VcsProcessExitFailure {
   readonly stderrTruncated: boolean;
 }
 
-export class VcsProcessSpawnError extends Schema.TaggedErrorClass<VcsProcessSpawnError>()(
+export class VcsProcessSpawnError extends Schema.TaggedError<VcsProcessSpawnError>()(
   "VcsProcessSpawnError",
   {
     operation: Schema.String,
@@ -265,7 +265,7 @@ export class VcsProcessSpawnError extends Schema.TaggedErrorClass<VcsProcessSpaw
   }
 }
 
-export class VcsProcessExitError extends Schema.TaggedErrorClass<VcsProcessExitError>()(
+export class VcsProcessExitError extends Schema.TaggedError<VcsProcessExitError>()(
   "VcsProcessExitError",
   {
     operation: Schema.String,
@@ -275,6 +275,8 @@ export class VcsProcessExitError extends Schema.TaggedErrorClass<VcsProcessExitE
     exitCode: Schema.Number,
     detail: Schema.String,
     failureKind: Schema.optional(VcsProcessExitFailureKind),
+    /** Process-boundary hint for a recognized transient failure; absence is not retryable. */
+    retryable: Schema.optional(Schema.Boolean),
     stderrLength: Schema.optional(NonNegativeInt),
     stderrTruncated: Schema.optional(Schema.Boolean),
   },
@@ -287,11 +289,14 @@ export class VcsProcessExitError extends Schema.TaggedErrorClass<VcsProcessExitE
     context: VcsProcessErrorContext,
     error: VcsProcessExitFailure,
     failureKind: VcsProcessExitFailureKind,
+    retryable?: boolean,
   ) {
     const detail = (() => {
       switch (failureKind) {
         case "authentication":
           return "Authentication failed.";
+        case "rate-limited":
+          return "API rate limit exceeded.";
         case "not-found":
           return context.command === "glab"
             ? "Merge request not found."
@@ -320,13 +325,14 @@ export class VcsProcessExitError extends Schema.TaggedErrorClass<VcsProcessExitE
       exitCode: error.exitCode,
       detail,
       failureKind,
+      ...(retryable === true ? { retryable: true } : {}),
       stderrLength: error.stderr.length,
       stderrTruncated: error.stderrTruncated,
     });
   }
 }
 
-export class VcsProcessTimeoutError extends Schema.TaggedErrorClass<VcsProcessTimeoutError>()(
+export class VcsProcessTimeoutError extends Schema.TaggedError<VcsProcessTimeoutError>()(
   "VcsProcessTimeoutError",
   {
     operation: Schema.String,
@@ -355,7 +361,7 @@ const VcsProcessBoundaryErrorFields = {
   argumentCount: Schema.optional(NonNegativeInt),
 };
 
-export class VcsProcessStdinWriteError extends Schema.TaggedErrorClass<VcsProcessStdinWriteError>()(
+export class VcsProcessStdinWriteError extends Schema.TaggedError<VcsProcessStdinWriteError>()(
   "VcsProcessStdinWriteError",
   {
     ...VcsProcessBoundaryErrorFields,
@@ -368,7 +374,7 @@ export class VcsProcessStdinWriteError extends Schema.TaggedErrorClass<VcsProces
   }
 }
 
-export class VcsProcessOutputReadError extends Schema.TaggedErrorClass<VcsProcessOutputReadError>()(
+export class VcsProcessOutputReadError extends Schema.TaggedError<VcsProcessOutputReadError>()(
   "VcsProcessOutputReadError",
   {
     ...VcsProcessBoundaryErrorFields,
@@ -381,7 +387,7 @@ export class VcsProcessOutputReadError extends Schema.TaggedErrorClass<VcsProces
   }
 }
 
-export class VcsProcessOutputLimitError extends Schema.TaggedErrorClass<VcsProcessOutputLimitError>()(
+export class VcsProcessOutputLimitError extends Schema.TaggedError<VcsProcessOutputLimitError>()(
   "VcsProcessOutputLimitError",
   {
     ...VcsProcessBoundaryErrorFields,
@@ -395,7 +401,7 @@ export class VcsProcessOutputLimitError extends Schema.TaggedErrorClass<VcsProce
   }
 }
 
-export class VcsProcessMissingExitCodeError extends Schema.TaggedErrorClass<VcsProcessMissingExitCodeError>()(
+export class VcsProcessMissingExitCodeError extends Schema.TaggedError<VcsProcessMissingExitCodeError>()(
   "VcsProcessMissingExitCodeError",
   VcsProcessBoundaryErrorFields,
 ) {
@@ -412,7 +418,7 @@ export const VcsOutputDecodeError = Schema.Union([
 ]);
 export type VcsOutputDecodeError = typeof VcsOutputDecodeError.Type;
 
-export class VcsRepositoryDetectionError extends Schema.TaggedErrorClass<VcsRepositoryDetectionError>()(
+export class VcsRepositoryDetectionError extends Schema.TaggedError<VcsRepositoryDetectionError>()(
   "VcsRepositoryDetectionError",
   {
     operation: Schema.String,
@@ -426,7 +432,7 @@ export class VcsRepositoryDetectionError extends Schema.TaggedErrorClass<VcsRepo
   }
 }
 
-export class VcsUnsupportedOperationError extends Schema.TaggedErrorClass<VcsUnsupportedOperationError>()(
+export class VcsUnsupportedOperationError extends Schema.TaggedError<VcsUnsupportedOperationError>()(
   "VcsUnsupportedOperationError",
   {
     operation: Schema.String,

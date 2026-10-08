@@ -110,7 +110,7 @@ function bookmarkConflicts(bookmarks: ReadonlyArray<JjBookmarkRecord>): Readonly
 
 const isVcsWorkflowError = Schema.is(VcsWorkflowError);
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
 
   const resolveJjDriver = Effect.fn("VcsSyncService.resolveJjDriver")(function* (cwd: string) {

@@ -89,7 +89,7 @@ function toRevision(record: JjRevisionRecord): VcsRevision {
 
 const isVcsWorkflowError = Schema.is(VcsWorkflowError);
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
 
   const resolveJjDriver = Effect.fn("VcsChangeService.resolveJjDriver")(function* (cwd: string) {

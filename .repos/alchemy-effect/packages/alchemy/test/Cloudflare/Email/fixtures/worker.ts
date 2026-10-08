@@ -1,16 +1,16 @@
 import * as Cloudflare from "@/Cloudflare/index.ts";
 import * as Effect from "effect/Effect";
-import { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
+import { HttpServerRequest } from "effect/http/HttpServerRequest";
+import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import { Email } from "./sender.ts";
 
 export default class SendEmailWorker extends Cloudflare.Worker<SendEmailWorker>()(
   "SendEmailTestWorker",
   {
-    main: import.meta.filename,
+    main: import.meta.url,
   },
   Effect.gen(function* () {
-    const email = yield* Cloudflare.SendEmail.bind(Email);
+    const email = yield* Cloudflare.Email.Send(Email);
 
     return {
       fetch: Effect.gen(function* () {
@@ -43,5 +43,5 @@ export default class SendEmailWorker extends Cloudflare.Worker<SendEmailWorker>(
         return HttpServerResponse.text("ok");
       }),
     };
-  }).pipe(Effect.provide(Cloudflare.SendEmailBindingLive)),
+  }).pipe(Effect.provide(Cloudflare.Email.SendBinding)),
 ) {}

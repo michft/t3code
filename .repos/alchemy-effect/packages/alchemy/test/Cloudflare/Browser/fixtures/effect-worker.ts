@@ -1,8 +1,8 @@
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@/Cloudflare";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
+import { HttpServerRequest } from "effect/http/HttpServerRequest";
+import * as HttpServerResponse from "effect/http/HttpServerResponse";
 
 const TARGET_URL = "https://example.com";
 
@@ -17,12 +17,10 @@ const byteLength = <E, R>(stream: Stream.Stream<Uint8Array, E, R>) =>
 export default class BrowserEffectWorker extends Cloudflare.Worker<BrowserEffectWorker>()(
   "BrowserEffectWorker",
   {
-    main: import.meta.filename,
+    main: import.meta.url,
   },
   Effect.gen(function* () {
-    const browser = yield* Cloudflare.Browser({
-      name: "BROWSER",
-    });
+    const browser = yield* Cloudflare.Browser("BROWSER");
 
     return {
       fetch: Effect.gen(function* () {
@@ -58,10 +56,11 @@ export default class BrowserEffectWorker extends Cloudflare.Worker<BrowserEffect
           }
           case "/scrape": {
             const scrape = yield* browser
-              .scrape({ url: TARGET_URL, elements: [{ selector: "h1" }] })
+              // example.com has no heading; its only link reads "Learn more".
+              .scrape({ url: TARGET_URL, elements: [{ selector: "a" }] })
               .pipe(Effect.orDie);
             return yield* HttpServerResponse.json({
-              heading: scrape.result[0]?.results[0]?.text ?? null,
+              text: scrape.result[0]?.results[0]?.text ?? null,
             });
           }
           case "/snapshot": {
@@ -70,7 +69,7 @@ export default class BrowserEffectWorker extends Cloudflare.Worker<BrowserEffect
               .pipe(Effect.orDie);
             return yield* HttpServerResponse.json({
               title: snapshot.meta.title,
-              screenshotLength: snapshot.result.screenshot.length,
+              screenshotLength: snapshot.result.screenshot?.length ?? 0,
             });
           }
           case "/json": {
@@ -113,7 +112,8 @@ export default class BrowserEffectWorker extends Cloudflare.Worker<BrowserEffect
               binding.quickAction("content", { url: TARGET_URL }),
             ).pipe(Effect.orDie);
             const body = yield* Effect.promise(
-              () => res.json() as Promise<Cloudflare.BrowserContentResult>,
+              () =>
+                res.json() as Promise<Cloudflare.Workers.BrowserContentResult>,
             );
             return yield* HttpServerResponse.json({ title: body.meta.title });
           }
@@ -122,5 +122,5 @@ export default class BrowserEffectWorker extends Cloudflare.Worker<BrowserEffect
         }
       }),
     };
-  }).pipe(Effect.provide(Cloudflare.BrowserBindingLive)),
+  }).pipe(Effect.provide(Cloudflare.Workers.BrowserBinding)),
 ) {}

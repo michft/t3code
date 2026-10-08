@@ -5,7 +5,7 @@ import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { PositiveInt, TrimmedNonEmptyString } from "@t3tools/contracts";
-import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
+import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 
 export interface NormalizedGitHubPullRequestRecord {
   readonly number: number;
@@ -13,7 +13,12 @@ export interface NormalizedGitHubPullRequestRecord {
   readonly url: string;
   readonly baseRefName: string;
   readonly headRefName: string;
+  /** The head commit, when the read asked for `headRefOid`. */
+  readonly headSha?: string;
   readonly state: "open" | "closed" | "merged";
+  readonly isDraft?: boolean;
+  readonly closedAt?: string | null;
+  readonly mergedAt?: string | null;
   readonly updatedAt: Option.Option<DateTime.Utc>;
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
@@ -26,21 +31,28 @@ const GitHubPullRequestSchema = Schema.Struct({
   url: TrimmedNonEmptyString,
   baseRefName: TrimmedNonEmptyString,
   headRefName: TrimmedNonEmptyString,
+  headRefOid: Schema.optional(Schema.NullOr(Schema.String)),
   state: Schema.optional(Schema.NullOr(Schema.String)),
+  isDraft: Schema.optional(Schema.Boolean),
+  closedAt: Schema.optional(Schema.NullOr(Schema.String)),
   mergedAt: Schema.optional(Schema.NullOr(Schema.String)),
   updatedAt: Schema.optional(Schema.OptionFromNullOr(Schema.DateTimeUtcFromString)),
   isCrossRepository: Schema.optional(Schema.Boolean),
+  // gh < 2.47 exports headRepository as {id, name} only; nameWithOwner was
+  // added later. Both fields stay optional so a version-drifted gh CLI can
+  // never fail the decode and silently drop the PR from the list.
   headRepository: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
-        nameWithOwner: Schema.String,
+        nameWithOwner: Schema.optional(Schema.NullOr(Schema.String)),
+        name: Schema.optional(Schema.NullOr(Schema.String)),
       }),
     ),
   ),
   headRepositoryOwner: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
-        login: Schema.String,
+        login: Schema.optional(Schema.NullOr(Schema.String)),
       }),
     ),
   ),
@@ -71,12 +83,17 @@ function normalizeGitHubPullRequestState(input: {
 function normalizeGitHubPullRequestRecord(
   raw: Schema.Schema.Type<typeof GitHubPullRequestSchema>,
 ): NormalizedGitHubPullRequestRecord {
-  const headRepositoryNameWithOwner = trimOptionalString(raw.headRepository?.nameWithOwner);
+  const explicitNameWithOwner = trimOptionalString(raw.headRepository?.nameWithOwner);
+  const headRepositoryName = trimOptionalString(raw.headRepository?.name);
   const headRepositoryOwnerLogin =
     trimOptionalString(raw.headRepositoryOwner?.login) ??
-    (typeof headRepositoryNameWithOwner === "string" && headRepositoryNameWithOwner.includes("/")
-      ? (headRepositoryNameWithOwner.split("/")[0] ?? null)
+    (explicitNameWithOwner?.includes("/") ? (explicitNameWithOwner.split("/")[0] ?? null) : null);
+  const headRepositoryNameWithOwner =
+    explicitNameWithOwner ??
+    (headRepositoryOwnerLogin && headRepositoryName
+      ? `${headRepositoryOwnerLogin}/${headRepositoryName}`
       : null);
+  const headSha = trimOptionalString(raw.headRefOid);
 
   return {
     number: raw.number,
@@ -84,7 +101,11 @@ function normalizeGitHubPullRequestRecord(
     url: raw.url,
     baseRefName: raw.baseRefName,
     headRefName: raw.headRefName,
+    ...(headSha ? { headSha } : {}),
     state: normalizeGitHubPullRequestState(raw),
+    ...(raw.isDraft === true ? { isDraft: true } : {}),
+    closedAt: raw.closedAt ?? null,
+    mergedAt: raw.mergedAt ?? null,
     updatedAt: raw.updatedAt ?? Option.none(),
     ...(typeof raw.isCrossRepository === "boolean"
       ? { isCrossRepository: raw.isCrossRepository }
@@ -95,10 +116,24 @@ function normalizeGitHubPullRequestRecord(
 }
 
 const decodeGitHubPullRequestList = decodeJsonResult(Schema.Array(Schema.Unknown));
-const decodeGitHubPullRequest = decodeJsonResult(GitHubPullRequestSchema);
 const decodeGitHubPullRequestEntry = Schema.decodeUnknownExit(GitHubPullRequestSchema);
 
-export const formatGitHubJsonDecodeError = formatSchemaError;
+/**
+ * Pull request rows in `gh --json` or GraphQL node shape. A row that does not decode is
+ * skipped, so one malformed pull request cannot hide the rest.
+ */
+export function decodeGitHubPullRequestEntries(
+  entries: ReadonlyArray<unknown>,
+): ReadonlyArray<NormalizedGitHubPullRequestRecord> {
+  const pullRequests: NormalizedGitHubPullRequestRecord[] = [];
+  for (const entry of entries) {
+    const decodedEntry = decodeGitHubPullRequestEntry(entry);
+    if (Exit.isSuccess(decodedEntry)) {
+      pullRequests.push(normalizeGitHubPullRequestRecord(decodedEntry.value));
+    }
+  }
+  return pullRequests;
+}
 
 export function decodeGitHubPullRequestListJson(
   raw: string,
@@ -106,27 +141,5 @@ export function decodeGitHubPullRequestListJson(
   ReadonlyArray<NormalizedGitHubPullRequestRecord>,
   Cause.Cause<Schema.SchemaError>
 > {
-  const result = decodeGitHubPullRequestList(raw);
-  if (Result.isSuccess(result)) {
-    const pullRequests: NormalizedGitHubPullRequestRecord[] = [];
-    for (const entry of result.success) {
-      const decodedEntry = decodeGitHubPullRequestEntry(entry);
-      if (Exit.isFailure(decodedEntry)) {
-        continue;
-      }
-      pullRequests.push(normalizeGitHubPullRequestRecord(decodedEntry.value));
-    }
-    return Result.succeed(pullRequests);
-  }
-  return Result.fail(result.failure);
-}
-
-export function decodeGitHubPullRequestJson(
-  raw: string,
-): Result.Result<NormalizedGitHubPullRequestRecord, Cause.Cause<Schema.SchemaError>> {
-  const result = decodeGitHubPullRequest(raw);
-  if (Result.isSuccess(result)) {
-    return Result.succeed(normalizeGitHubPullRequestRecord(result.success));
-  }
-  return Result.fail(result.failure);
+  return Result.map(decodeGitHubPullRequestList(raw), decodeGitHubPullRequestEntries);
 }

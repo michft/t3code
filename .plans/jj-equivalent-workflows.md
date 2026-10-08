@@ -47,21 +47,21 @@ Repository selection rules:
 
 ## Semantic mapping
 
-| Product concept | Git implementation | jj implementation |
-| --- | --- | --- |
-| Repository | Git working tree | jj workspace backed by Git |
-| Thread isolation | Git worktree | `jj workspace` |
-| Named publish ref | Branch | Bookmark |
-| Current location | Checked-out branch and `HEAD` | Workspace commit `@`; optional publish bookmark is separate |
-| Uncommitted work | Working tree and index | Mutable working-copy commit |
-| Commit action | Create a commit from staged or selected files | Describe/finalize the current change, then create a new working-copy change |
-| Select files | Git index/pathspec commit | jj fileset arguments to `jj commit` |
-| Switch base | Checkout/switch branch | Create a new change on a revision, or explicitly edit an existing change |
-| Pull | Fetch plus fast-forward | Fetch tracked bookmarks; advance/rebase only when safe |
-| Push | Push branch | Move and push one explicit bookmark |
-| Remote branch | Remote-tracking branch | Remote bookmark such as `main@origin` |
-| Recovery snapshot | Hidden Git checkpoint refs | jj operation and working-copy revision metadata, restored locally |
-| Merge conflict | Transient index/worktree state | First-class conflicted revision or bookmark |
+| Product concept   | Git implementation                            | jj implementation                                                           |
+| ----------------- | --------------------------------------------- | --------------------------------------------------------------------------- |
+| Repository        | Git working tree                              | jj workspace backed by Git                                                  |
+| Thread isolation  | Git worktree                                  | `jj workspace`                                                              |
+| Named publish ref | Branch                                        | Bookmark                                                                    |
+| Current location  | Checked-out branch and `HEAD`                 | Workspace commit `@`; optional publish bookmark is separate                 |
+| Uncommitted work  | Working tree and index                        | Mutable working-copy commit                                                 |
+| Commit action     | Create a commit from staged or selected files | Describe/finalize the current change, then create a new working-copy change |
+| Select files      | Git index/pathspec commit                     | jj fileset arguments to `jj commit`                                         |
+| Switch base       | Checkout/switch branch                        | Create a new change on a revision, or explicitly edit an existing change    |
+| Pull              | Fetch plus fast-forward                       | Fetch tracked bookmarks; advance/rebase only when safe                      |
+| Push              | Push branch                                   | Move and push one explicit bookmark                                         |
+| Remote branch     | Remote-tracking branch                        | Remote bookmark such as `main@origin`                                       |
+| Recovery snapshot | Hidden Git checkpoint refs                    | jj operation and working-copy revision metadata, restored locally           |
+| Merge conflict    | Transient index/worktree state                | First-class conflicted revision or bookmark                                 |
 
 Two product concepts must remain separate:
 
@@ -411,26 +411,26 @@ Exit criteria:
 
 ## Workflow acceptance matrix
 
-| Workflow | Required jj outcome |
-| --- | --- |
-| Detect | Colocated `.jj` repository resolves to jj; explicit config overrides auto-detection |
-| Initialize | Existing directory becomes a colocated Git-backed jj repository |
-| Clone | Hosted Git repository becomes a colocated jj workspace with tracked default bookmark |
-| Publish new repo | Provider repo and remote are created; one explicit bookmark is pushed |
-| Status | Changed files, workspace revision, publish bookmark, divergence, and conflicts are accurate |
-| New local thread | New empty change is created from the chosen base in the current workspace |
-| New isolated thread | New jj workspace and empty change are created from the chosen base |
-| Finalize all | Current change is described/finalized; workspace moves to a new empty change |
-| Finalize selected | Selected files are finalized; excluded files remain in the workspace change |
-| AI message | Message context comes from the current change patch and follows existing confirmation rules |
-| Push | Only the chosen publish bookmark moves remotely; safety rejection is preserved |
-| Fetch updates | Remote bookmarks update; unsafe local rebase is not automatic |
-| Create PR | Provider PR head is the explicit publish bookmark |
-| Checkout PR | PR head becomes the base of a new local change in current or isolated workspace |
-| Review | Working-copy and range diffs support file navigation and line comments |
-| Checkpoint | Capture and preview survive restart for the documented retention window |
-| Restore | Only the target workspace contents/description change |
-| Recovery | Stale workspace, interrupted command, and conflicts return structured next actions |
+| Workflow            | Required jj outcome                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------- |
+| Detect              | Colocated `.jj` repository resolves to jj; explicit config overrides auto-detection         |
+| Initialize          | Existing directory becomes a colocated Git-backed jj repository                             |
+| Clone               | Hosted Git repository becomes a colocated jj workspace with tracked default bookmark        |
+| Publish new repo    | Provider repo and remote are created; one explicit bookmark is pushed                       |
+| Status              | Changed files, workspace revision, publish bookmark, divergence, and conflicts are accurate |
+| New local thread    | New empty change is created from the chosen base in the current workspace                   |
+| New isolated thread | New jj workspace and empty change are created from the chosen base                          |
+| Finalize all        | Current change is described/finalized; workspace moves to a new empty change                |
+| Finalize selected   | Selected files are finalized; excluded files remain in the workspace change                 |
+| AI message          | Message context comes from the current change patch and follows existing confirmation rules |
+| Push                | Only the chosen publish bookmark moves remotely; safety rejection is preserved              |
+| Fetch updates       | Remote bookmarks update; unsafe local rebase is not automatic                               |
+| Create PR           | Provider PR head is the explicit publish bookmark                                           |
+| Checkout PR         | PR head becomes the base of a new local change in current or isolated workspace             |
+| Review              | Working-copy and range diffs support file navigation and line comments                      |
+| Checkpoint          | Capture and preview survive restart for the documented retention window                     |
+| Restore             | Only the target workspace contents/description change                                       |
+| Recovery            | Stale workspace, interrupted command, and conflicts return structured next actions          |
 
 ## Test strategy
 
@@ -490,18 +490,18 @@ Each slice must be independently releasable behind capabilities or the experimen
 
 ## Main risks and mitigations
 
-| Risk | Mitigation |
-| --- | --- |
-| Git-shaped contracts force incorrect jj behavior | Separate workspace revision from publish ref before driver work |
-| Human CLI output changes between jj versions | Pin minimum version; use explicit templates; integration-test current stable |
-| Colocated Git and jj commands race | Serialize repository mutations; snapshot/import at workflow boundaries; document colocation |
-| Operation restore affects every workspace | Never use repository-wide restore for thread rollback |
-| Checkpoint revisions are garbage-collected | Prove and implement bounded retention before claiming support |
-| Fetch creates bookmark divergence/conflict | Return structured state; never auto-force or auto-resolve |
-| Provider tools assume Git branch state | Pass explicit repo/head data; isolate provider CLI compatibility adapters |
-| Selected-file commit differs from Git staging | Use jj filesets and test excluded-change preservation |
-| Stale workspace after cross-workspace rewrite | Detect and expose repair; test interruption and recovery |
-| Git hooks do not map to jj | Use an explicit VCS-neutral validation workflow; do not emulate the Git index |
+| Risk                                             | Mitigation                                                                                  |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Git-shaped contracts force incorrect jj behavior | Separate workspace revision from publish ref before driver work                             |
+| Human CLI output changes between jj versions     | Pin minimum version; use explicit templates; integration-test current stable                |
+| Colocated Git and jj commands race               | Serialize repository mutations; snapshot/import at workflow boundaries; document colocation |
+| Operation restore affects every workspace        | Never use repository-wide restore for thread rollback                                       |
+| Checkpoint revisions are garbage-collected       | Prove and implement bounded retention before claiming support                               |
+| Fetch creates bookmark divergence/conflict       | Return structured state; never auto-force or auto-resolve                                   |
+| Provider tools assume Git branch state           | Pass explicit repo/head data; isolate provider CLI compatibility adapters                   |
+| Selected-file commit differs from Git staging    | Use jj filesets and test excluded-change preservation                                       |
+| Stale workspace after cross-workspace rewrite    | Detect and expose repair; test interruption and recovery                                    |
+| Git hooks do not map to jj                       | Use an explicit VCS-neutral validation workflow; do not emulate the Git index               |
 
 ## Non-goals for first release
 
