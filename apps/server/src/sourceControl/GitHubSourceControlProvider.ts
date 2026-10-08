@@ -16,7 +16,7 @@ import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitHubApi from "./GitHubApi.ts";
-import * as GitHubCli from "./GitHubCli.ts";
+import * as GitHubRepositoryApi from "./GitHubRepositoryApi.ts";
 import {
   effectiveGitHubAccount,
   findAuthenticatedGitHubAccount,
@@ -41,7 +41,7 @@ const decodeLinkSubject = Schema.decodeUnknownEffect(
   ),
 );
 
-function toChangeRequest(summary: GitHubCli.GitHubPullRequestSummary): ChangeRequest {
+function toChangeRequest(summary: GitHubRepositoryApi.GitHubPullRequestSummary): ChangeRequest {
   return {
     provider: "github",
     number: summary.number,
@@ -265,7 +265,7 @@ export const makeDiscovery = Effect.gen(function* () {
 });
 
 export const make = Effect.gen(function* () {
-  const github = yield* GitHubCli.GitHubCli;
+  const github = yield* GitHubRepositoryApi.GitHubRepositoryApi;
   const api = yield* GitHubApi.GitHubApi;
   const repositoryInput = (
     context: Parameters<
@@ -296,7 +296,6 @@ export const make = Effect.gen(function* () {
                 new SourceControlProviderError({
                   provider: "github",
                   operation: "listChangeRequests",
-                  command: error.command,
                   cwd: input.cwd,
                   reference: SourceControlProvider.transportSafeSourceControlErrorValue(
                     input.headSelector,
@@ -336,7 +335,6 @@ export const make = Effect.gen(function* () {
               new SourceControlProviderError({
                 provider: "github",
                 operation: "listChangeRequests",
-                command: error.command,
                 cwd: input.cwd,
                 reference: SourceControlProvider.transportSafeSourceControlErrorValue(
                   input.headSelector,
@@ -415,7 +413,6 @@ export const make = Effect.gen(function* () {
               new SourceControlProviderError({
                 provider: "github",
                 operation: "getChangeRequest",
-                command: error.command,
                 cwd: input.cwd,
                 reference: SourceControlProvider.transportSafeSourceControlErrorValue(
                   input.reference,
@@ -441,7 +438,6 @@ export const make = Effect.gen(function* () {
               new SourceControlProviderError({
                 provider: "github",
                 operation: "createChangeRequest",
-                command: error.command,
                 cwd: input.cwd,
                 reference: SourceControlProvider.transportSafeSourceControlErrorValue(
                   input.headSelector,
@@ -458,7 +454,6 @@ export const make = Effect.gen(function* () {
             new SourceControlProviderError({
               provider: "github",
               operation: "getRepositoryCloneUrls",
-              command: error.command,
               cwd: input.cwd,
               repository: SourceControlProvider.transportSafeSourceControlErrorValue(
                 input.repository,
@@ -475,7 +470,6 @@ export const make = Effect.gen(function* () {
             new SourceControlProviderError({
               provider: "github",
               operation: "createRepository",
-              command: error.command,
               cwd: input.cwd,
               repository: SourceControlProvider.transportSafeSourceControlErrorValue(
                 input.repository,
@@ -500,7 +494,6 @@ export const make = Effect.gen(function* () {
               new SourceControlProviderError({
                 provider: "github",
                 operation: "getDefaultBranch",
-                command: error.command,
                 cwd: input.cwd,
                 detail: error.message,
                 cause: error,
@@ -514,7 +507,6 @@ export const make = Effect.gen(function* () {
             new SourceControlProviderError({
               provider: "github",
               operation: "checkoutChangeRequest",
-              command: error.command,
               cwd: input.cwd,
               reference: SourceControlProvider.transportSafeSourceControlErrorValue(
                 input.reference,
