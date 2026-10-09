@@ -21,6 +21,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { isFilesystemRoot, managedWorktreesDirectories } from "../worktreesDirectory.ts";
 import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility.ts";
 import { HostProcessHomeDirectory } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 export class ReviewService extends Context.Service<
   ReviewService,
@@ -74,7 +75,7 @@ export const make = Effect.gen(function* () {
     const worktreesDirectories = yield* settings.getSettings.pipe(
       Effect.orElseSucceed(() => ({ worktreesDirectory: "", previousWorktreesDirectories: [] })),
     );
-    const home = yield* HostProcessHomeDirectory;
+    const home = yield* HostProcess.HomeDirectory;
     const [candidate, workspaceRoot, worktreesRoots] = yield* Effect.all([
       canonicalizePath(cwd),
       canonicalizePath(config.cwd),

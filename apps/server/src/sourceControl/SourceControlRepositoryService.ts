@@ -31,7 +31,7 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsSyncService from "../vcs/VcsSyncService.ts";
 import * as BitbucketApi from "@t3tools/source-control-bitbucket/server/BitbucketApi";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
-import { HostProcessHomeDirectory } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 const isSourceControlRepositoryError = Schema.is(SourceControlRepositoryError);
 const isSourceControlProviderError = Schema.is(SourceControlProviderError);
 const isBitbucketRepositoryLocatorError = Schema.is(BitbucketApi.BitbucketRepositoryLocatorError);
@@ -218,7 +218,7 @@ export const make = Effect.gen(function* () {
         });
       }
 
-      return path.resolve(expandHomePath(trimmed, yield* HostProcessHomeDirectory));
+      return path.resolve(expandHomePath(trimmed, yield* HostProcess.HomeDirectory));
     },
   );
 
