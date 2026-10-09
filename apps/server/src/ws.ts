@@ -233,7 +233,6 @@ import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as BitbucketApi from "./sourceControl/BitbucketApi.ts";
 import * as GitHubApi from "./sourceControl/GitHubApi.ts";
-import * as GitLabCli from "./sourceControl/GitLabCli.ts";
 import * as SourceControlBuiltInDrivers from "./sourceControl/builtInDrivers.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
@@ -3253,7 +3252,6 @@ export const layer = Layer.unwrap(
                         Layer.mergeAll(
                           BitbucketApi.layer,
                           GitHubApi.layerWithDependencies,
-                          GitLabCli.layer,
                           SourceControlBuiltInDrivers.layer,
                         ),
                       ),
