@@ -21,7 +21,7 @@ import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsDriver from "../vcs/VcsDriver.ts";
 import * as VcsSyncService from "../vcs/VcsSyncService.ts";
-import type * as SourceControlProvider from "./SourceControlProvider.ts";
+import type * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
 import * as SourceControlRepositoryService from "./SourceControlRepositoryService.ts";
 
