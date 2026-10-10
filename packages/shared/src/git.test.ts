@@ -1,3 +1,4 @@
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import type { VcsStatusRemoteResult, VcsStatusResult } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -269,7 +270,7 @@ describe("applyGitStatusStreamEvent", () => {
       defaultRef: "main@origin",
       conflicts: [{ kind: "content", path: "src/demo.ts" }],
       sourceControlProvider: {
-        kind: "github",
+        kind: SourceControlProviderKind.make("github"),
         name: "GitHub",
         baseUrl: "https://github.com",
       },

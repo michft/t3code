@@ -1,4 +1,5 @@
 import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@t3tools/shared/git";
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -63,7 +64,7 @@ const decodeLinkSubject = Schema.decodeUnknownEffect(
 );
 
 function toChangeRequest(record: NormalizedGitHubPullRequestRecord): ChangeRequest {
-  return { provider: "github", ...record };
+  return { provider: SourceControlProviderKind.make("github"), ...record };
 }
 
 function authAccounts(accounts: ReadonlyArray<GitHubAuthStatusAccount>) {
@@ -165,7 +166,7 @@ export function parseGitHubAuth(
 
 export const discovery = {
   type: "cli",
-  kind: "github",
+  kind: SourceControlProviderKind.make("github"),
   label: "GitHub",
   executable: "gh",
   versionArgs: ["--version"],
@@ -272,7 +273,7 @@ export const makeDiscovery = Effect.gen(function* () {
         Effect.map((known) =>
           known
             ? ({
-                kind: "github",
+                kind: SourceControlProviderKind.make("github"),
                 name: "GitHub Self-Hosted",
                 baseUrl: context.provider.baseUrl,
               } as const)
@@ -886,7 +887,7 @@ export const make = Effect.gen(function* () {
     ) =>
     (error: GitHubFailure) =>
       new SourceControlProviderError({
-        provider: "github",
+        provider: SourceControlProviderKind.make("github"),
         operation,
         cwd,
         ...(context?.reference === undefined
@@ -923,7 +924,7 @@ export const make = Effect.gen(function* () {
         Effect.mapError(
           (cause) =>
             new SourceControlProviderError({
-              provider: "github",
+              provider: SourceControlProviderKind.make("github"),
               operation: "resolveLink",
               cwd: input.cwd,
               detail: "The linked subject could not be read.",
@@ -935,7 +936,7 @@ export const make = Effect.gen(function* () {
       Effect.mapError(
         (cause) =>
           new SourceControlProviderError({
-            provider: "github",
+            provider: SourceControlProviderKind.make("github"),
             operation: "resolveLink.decode",
             cwd: input.cwd,
             detail: "The linked subject could not be read.",
@@ -947,7 +948,7 @@ export const make = Effect.gen(function* () {
   });
 
   return SourceControlProvider.SourceControlProvider.of({
-    kind: "github",
+    kind: SourceControlProviderKind.make("github"),
     // `gh pr list --head` filters on the head ref name alone and accepts anything, so an
     // `owner:branch` or `remote:branch` selector silently lists zero pull requests while
     // spending a GraphQL call; the bare branch is always among the selectors. Without the owner,
