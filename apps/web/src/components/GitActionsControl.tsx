@@ -53,6 +53,7 @@ import {
   GitLabIcon,
   ForgejoIcon,
   JujutsuIcon,
+  GitCafeIcon,
 } from "~/components/Icons";
 import { RadioGroup } from "~/components/ui/radio-group";
 import { Spinner } from "~/components/ui/spinner";
@@ -161,7 +162,7 @@ interface PendingDefaultBranchAction {
 
 type PublishProviderKind = Extract<
   SourceControlProviderKind,
-  "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops"
+  "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops" | "gitcafe"
 >;
 
 type GitActionToastId = ReturnType<typeof toastManager.add>;
@@ -241,6 +242,14 @@ const PUBLISH_PROVIDER_OPTIONS = [
     host: "dev.azure.com",
     pathPlaceholder: "project/repository",
     Icon: AzureDevOpsIcon,
+  },
+  {
+    value: "gitcafe",
+    label: "GitCafe",
+    description: "git.cafe",
+    host: "git.cafe",
+    pathPlaceholder: "owner/repo",
+    Icon: GitCafeIcon,
   },
 ] as const satisfies ReadonlyArray<{
   readonly value: PublishProviderKind;
@@ -569,6 +578,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
       forgejo: null,
       bitbucket: null,
       "azure-devops": null,
+      gitcafe: null,
     };
     for (const provider of sourceControlDiscovery.data?.sourceControlProviders ?? []) {
       if (isPublishProviderKind(provider.kind)) {
