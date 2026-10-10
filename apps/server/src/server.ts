@@ -399,7 +399,7 @@ const layerVcsWorkspace = VcsWorkspaceService.layer.pipe(
 
 const layerReview = ReviewService.layer.pipe(
   Layer.provideMerge(layerVcsGitProviderCompatibility),
-  Layer.provideMerge(layerVcsGitProviderCompatibility),
+  Layer.provide(ProjectStore.layer),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerVcsDriverRegistry),
 );
