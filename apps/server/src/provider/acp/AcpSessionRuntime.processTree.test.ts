@@ -655,12 +655,12 @@ describe("terminatePosixOwnedProcessTree", () => {
 
   it.live("rotates more than 64 live parents without scanning retained tombstones", () =>
     Effect.gen(function* () {
-      // Keep synthetic parents outside both the worker PID and tombstone range.
-      const parentPidBase = Math.max(process.pid, 105_000) + 1;
-      const parents = Array.from({ length: 130 }, (_, index) => {
-        const pid = parentPidBase + index;
-        return identity(pid, 100, pid, pid);
-      });
+      // The server fixture's process group is the runner's real pid, so a synthetic
+      // parent sharing it would be skipped as the server's own group.
+      const parentPidBase = process.pid < 500_000 ? 500_000 : 1_000;
+      const parents = Array.from({ length: 130 }, (_, index) =>
+        identity(parentPidBase + index, 100, parentPidBase + index, parentPidBase + index),
+      );
       let childListReads = 0;
       let identityCalls = 0;
       let snapshotCalls = 0;
