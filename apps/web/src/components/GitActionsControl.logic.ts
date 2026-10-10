@@ -236,7 +236,6 @@ export function buildMenuItems(
   const canCreatePr =
     !isBusy &&
     hasBranch &&
-    !hasChanges &&
     !hasOpenPr &&
     hasDefaultBranchDelta &&
     !isBehind &&
