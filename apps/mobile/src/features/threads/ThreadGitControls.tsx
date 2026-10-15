@@ -1,4 +1,5 @@
 import { getVcsPresentation } from "@t3tools/client-runtime/state/vcs";
+import * as Dialog from "../../components/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { createNativeHeaderMenu } from "../../components/nativeHeaderMenu.ios";
 import type { AppBarMenu } from "../../components/AppBar.types";
@@ -19,7 +20,6 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { useCallback, useMemo } from "react";
-import { Alert } from "react-native";
 import { useEnvironmentScope } from "../../state/session";
 import {
   basename,
@@ -186,11 +186,11 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
   const openExistingPr = useCallback(async () => {
     const prUrl = gitStatus?.pr?.state === "open" ? gitStatus.pr.url : null;
     if (!prUrl) {
-      Alert.alert("No open PR", "This branch does not have an open pull request.");
+      Dialog.alert("No open PR", "This branch does not have an open pull request.");
       return;
     }
     if (!(await openPullRequest(prUrl))) {
-      Alert.alert("Unable to open PR", "The pull request could not be opened.");
+      Dialog.alert("Unable to open PR", "The pull request could not be opened.");
     }
   }, [gitStatus, openPullRequest]);
 
