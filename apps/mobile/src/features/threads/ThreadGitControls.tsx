@@ -1,9 +1,9 @@
 import { getVcsPresentation } from "@t3tools/client-runtime/state/vcs";
-import { Toolbar } from "../../components/Toolbar";
-import * as Dialog from "../../components/Dialog";
+import { Toolbar } from "../../components/ui/Toolbar";
+import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
-import { createNativeHeaderMenu } from "../../components/nativeHeaderMenu.ios";
-import type { AppBarMenu } from "../../components/AppBar.types";
+import { createNativeHeaderMenu } from "../../components/ui/nativeHeaderMenu.ios";
+import type { AppBarMenu } from "../../components/ui/AppBar.types";
 import {
   AuthSourceControlWriteScope,
   EnvironmentId,
