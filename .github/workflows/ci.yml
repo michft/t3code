@@ -80,11 +80,7 @@ jobs:
           fi
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
+        uses: ./.github/actions/setup-ci-deps
 
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
@@ -128,11 +124,7 @@ jobs:
           ) > "$RUNNER_TEMP/apt.log" 2>&1 < /dev/null &
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
+        uses: ./.github/actions/setup-ci-deps
 
       - name: Ensure Electron runtime is installed
         id: electron
@@ -220,11 +212,7 @@ jobs:
           ) > "$RUNNER_TEMP/apt.log" 2>&1 < /dev/null &
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
+        uses: ./.github/actions/setup-ci-deps
 
       - name: Install minimum supported Jujutsu
         uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
@@ -277,11 +265,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
+        uses: ./.github/actions/setup-ci-deps
 
       - name: Test
         run: vp run --filter @t3tools/web test
@@ -319,11 +303,7 @@ jobs:
 
       - name: Setup Vite+
         if: steps.changes.outputs.test_server != 'false'
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
+        uses: ./.github/actions/setup-ci-deps
 
       - name: Install Jujutsu
         uses: taiki-e/install-action@v2
