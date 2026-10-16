@@ -79,7 +79,6 @@ export interface RunVcsStackedActionInput {
   readonly commitMessage?: string;
   readonly featureBranch?: boolean;
   readonly filePaths?: ReadonlyArray<string>;
-  /** The thread the action runs beside; the server links a pull request it creates to it. */
   readonly threadId?: ThreadId;
   readonly projectId?: ProjectId;
   readonly publishRef?: GitRunStackedActionInput["publishRef"];
@@ -503,9 +502,7 @@ export function createVcsActionManager<R, E>(
                 if (input.onProgress !== undefined) {
                   try {
                     input.onProgress(event);
-                  } catch {
-                    // Presentation callbacks must not fail the source-control operation.
-                  }
+                  } catch {}
                 }
               }),
           },
