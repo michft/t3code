@@ -29,6 +29,8 @@ const [
   Project,
   Auth,
   VcsWorkspaces,
+  Config,
+  Settings,
 ] = await Promise.all([
   app("orchestration-v2/ProviderTurnStartService"),
   app("orchestration-v2/ProjectionStore"),
@@ -42,6 +44,8 @@ const [
   app("project/ProjectService"),
   app("provider/ProviderAuthService"),
   app("vcs/VcsWorkspaceService"),
+  app("config"),
+  app("serverSettings"),
 ]);
 let current;
 let fullReads = 0;
@@ -68,6 +72,8 @@ const dependencies = Layer.mergeAll(
   Layer.mock(VcsWorkspaces.VcsWorkspaceService)({}),
   Layer.mock(Project.ProjectService)({}),
   Layer.mock(Auth.ProviderAuthService)({}),
+  Layer.mock(Config.ServerConfig)({ worktreesDir: "/synthetic-worktrees" }),
+  Settings.layerTest(),
   Layer.mock(Projection.ProjectionStoreV2)({
     getThreadProjection: () =>
       Effect.sync(() => {
