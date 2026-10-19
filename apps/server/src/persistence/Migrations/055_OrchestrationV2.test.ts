@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        [...Array.from({ length: 63 }, (_, index) => index + 1), 70],
+        [...Array.from({ length: 64 }, (_, index) => index + 1), 70],
       );
     }),
   );
@@ -35,6 +35,7 @@ layer("055_OrchestrationV2", (it) => {
         [61, "PullRequestReviewGuides"],
         [62, "ThreadFailureLookupIndex"],
         [63, "DropUnusedV1Projections"],
+        [64, "CanonicalizeThreadPullRequestLinks"],
         [70, "ForkThreadVcsWorkspace"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
@@ -65,6 +66,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 61, name: "PullRequestReviewGuides" },
         { migration_id: 62, name: "ThreadFailureLookupIndex" },
         { migration_id: 63, name: "DropUnusedV1Projections" },
+        { migration_id: 64, name: "CanonicalizeThreadPullRequestLinks" },
         { migration_id: 70, name: "ForkThreadVcsWorkspace" },
       ]);
 

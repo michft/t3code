@@ -2273,6 +2273,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       worktreePath: command.worktreePath,
       ...(command.vcsWorkspace === undefined ? {} : { vcsWorkspace: command.vcsWorkspace }),
       activeProviderThreadId: null,
+      pullRequests: [],
       lineage: {
         parentThreadId: null,
         relationshipToParent: null,
