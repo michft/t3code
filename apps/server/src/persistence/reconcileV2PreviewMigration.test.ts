@@ -46,6 +46,7 @@ describe("V2 preview upgrade", () => {
         [64, "CanonicalizeThreadPullRequestLinks"],
         [65, "CodexUsageNativeTurnIndex"],
         [66, "RepairClientSettlementTimestamps"],
+        [67, "WebhookDedupe"],
         [70, "ForkThreadVcsWorkspace"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
@@ -136,6 +137,7 @@ describe("V2 preview upgrade", () => {
         [64, "CanonicalizeThreadPullRequestLinks"],
         [65, "CodexUsageNativeTurnIndex"],
         [66, "RepairClientSettlementTimestamps"],
+        [67, "WebhookDedupe"],
         [70, "ForkThreadVcsWorkspace"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
