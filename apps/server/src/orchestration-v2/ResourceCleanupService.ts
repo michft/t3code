@@ -10,12 +10,13 @@ import * as Schema from "effect/Schema";
 import { resolveAttachmentPathById } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 
 export class ResourceCleanupError extends Schema.TaggedError<ResourceCleanupError>()(
   "ResourceCleanupError",
   {
-    operation: Schema.Literals(["terminal", "preview", "attachment", "workspace"]),
+    operation: Schema.Literals(["terminal", "preview", "attachment", "workspace", "scheduled-tasks"]),
     threadId: Schema.optional(Schema.String),
     attachmentId: Schema.optional(Schema.String),
     cause: Schema.Defect(),
@@ -23,6 +24,7 @@ export class ResourceCleanupError extends Schema.TaggedError<ResourceCleanupErro
 ) {}
 
 export class ResourceCleanupService extends Context.Reference<{
+  readonly cleanupScheduledTasks: (threadId: ThreadId) => Effect.Effect<void, ResourceCleanupError>;
   readonly cleanupTerminals: (
     threadId: string,
     workspace?: VcsWorkspaceIdentity,
@@ -33,6 +35,7 @@ export class ResourceCleanupService extends Context.Reference<{
   ) => Effect.Effect<void, ResourceCleanupError>;
 }>("t3/orchestration-v2/ResourceCleanupService", {
   defaultValue: () => ({
+    cleanupScheduledTasks: () => Effect.void,
     cleanupTerminals: () => Effect.void,
     cleanupPreviews: () => Effect.void,
     cleanupAttachments: () => Effect.void,
@@ -47,7 +50,18 @@ export const layer = Layer.effect(
     const fileSystem = yield* FileSystem.FileSystem;
     const config = yield* ServerConfig.ServerConfig;
     const workspaces = yield* VcsWorkspaceService.VcsWorkspaceService;
+    const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
     return {
+      cleanupScheduledTasks: (threadId: ThreadId) =>
+        scheduledTasks
+          .deleteForThread(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ResourceCleanupError({ operation: "scheduled-tasks", threadId, cause }),
+            ),
+          ),
+
       cleanupTerminals: (threadId: string, workspace?: VcsWorkspaceIdentity) =>
         Effect.gen(function* () {
           yield* terminals
