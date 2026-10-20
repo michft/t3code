@@ -44,6 +44,7 @@ describe("V2 preview upgrade", () => {
         [62, "ThreadFailureLookupIndex"],
         [63, "DropUnusedV1Projections"],
         [64, "CanonicalizeThreadPullRequestLinks"],
+        [65, "CodexUsageNativeTurnIndex"],
         [70, "ForkThreadVcsWorkspace"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
@@ -132,6 +133,7 @@ describe("V2 preview upgrade", () => {
         [62, "ThreadFailureLookupIndex"],
         [63, "DropUnusedV1Projections"],
         [64, "CanonicalizeThreadPullRequestLinks"],
+        [65, "CodexUsageNativeTurnIndex"],
         [70, "ForkThreadVcsWorkspace"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
