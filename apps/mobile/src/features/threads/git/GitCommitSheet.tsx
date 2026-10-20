@@ -80,7 +80,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
         />
       ) : null}
       <SheetHeader
-        presentation="inline"
+        presentation={Platform.OS === "android" ? "inline" : "native"}
         title={isJjRepository ? "Finalize change" : "Commit changes"}
         subtitle={gitStatus.data?.refName ?? "(detached HEAD)"}
         onCancel={() => navigation.goBack()}
@@ -88,6 +88,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
       />
       <ScrollView
         nestedScrollEnabled
+        contentInsetAdjustmentBehavior="automatic"
         className="android:shrink android:grow-0 ios:flex-1"
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
