@@ -116,52 +116,6 @@ export function formatGitActionElapsed(startedAtMs: number | null, nowMs: number
   return `${minutes}m ${seconds}s`;
 }
 
-export function buildGitActionProgressStages(input: {
-  action: GitStackedAction;
-  driverKind?: VcsStatusResult["driverKind"];
-  hasCustomCommitMessage: boolean;
-  hasWorkingTreeChanges: boolean;
-  pushTarget?: string;
-  featureBranch?: boolean;
-  shouldPushBeforePr?: boolean;
-  terminology?: ChangeRequestTerminology;
-}): string[] {
-  const terminology = input.terminology ?? sourceControlClients.get(undefined).changeRequest;
-  const isJj = input.driverKind === "jj";
-  const branchStages = input.featureBranch
-    ? [isJj ? "Preparing feature bookmark..." : "Preparing feature ref..."]
-    : [];
-  const pushStage = input.pushTarget ? `Pushing to ${input.pushTarget}...` : "Pushing...";
-  const prStages = [
-    `Preparing ${terminology.shortLabel}...`,
-    `Generating ${terminology.shortLabel} content...`,
-    `Creating ${terminology.singular}...`,
-  ];
-
-  if (input.action === "push") {
-    return [pushStage];
-  }
-  if (input.action === "create_pr") {
-    return input.shouldPushBeforePr ? [pushStage, ...prStages] : prStages;
-  }
-
-  const shouldIncludeCommitStages = input.action === "commit" || input.hasWorkingTreeChanges;
-  const commitStages = !shouldIncludeCommitStages
-    ? []
-    : input.hasCustomCommitMessage
-      ? [isJj ? "Finalizing change..." : "Committing..."]
-      : isJj
-        ? ["Generating change message...", "Finalizing change..."]
-        : ["Generating commit message...", "Committing..."];
-  if (input.action === "commit") {
-    return [...branchStages, ...commitStages];
-  }
-  if (input.action === "commit_push") {
-    return [...branchStages, ...commitStages, pushStage];
-  }
-  return [...branchStages, ...commitStages, pushStage, ...prStages];
-}
-
 export function buildMenuItems(
   gitStatus: VcsStatusResult | null,
   isBusy: boolean,

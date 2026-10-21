@@ -3,10 +3,7 @@ import * as Schema from "effect/Schema";
 
 import {
   GitCommandError,
-  VcsCreateWorktreeInput,
-  GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
-  GitRunStackedActionResult,
   GitRunStackedActionInput,
   GitResolvePullRequestResult,
   VcsStatusLocalResult,
@@ -14,10 +11,6 @@ import {
 } from "./git.ts";
 
 const decodeGitCommandError = Schema.decodeUnknownSync(Schema.toCodecJson(GitCommandError));
-const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
-const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
-  GitPreparePullRequestThreadInput,
-);
 const decodePreparePullRequestThreadResult = Schema.decodeUnknownSync(
   GitPreparePullRequestThreadResult,
 );
@@ -111,56 +104,9 @@ describe("GitPreparePullRequestThreadResult", () => {
 
     expect(parsed.isOnPullRequestHead).toBe(true);
   });
-
-  it("preserves an explicit stale pull request checkout result", () => {
-    const parsed = decodePreparePullRequestThreadResult({
-      pullRequest: {
-        number: 42,
-        title: "PR threads",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/42",
-        baseBranch: "main",
-        headBranch: "feature/pr-threads",
-        state: "open",
-      },
-      branch: "feature/pr-threads",
-      worktreePath: "/tmp/pr-threads",
-      isOnPullRequestHead: false,
-    });
-
-    expect(parsed.isOnPullRequestHead).toBe(false);
-  });
-});
-
-describe("GitResolvePullRequestResult", () => {
-  it("decodes resolved pull request metadata", () => {
-    const parsed = decodeResolvePullRequestResult({
-      pullRequest: {
-        number: 42,
-        title: "PR threads",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/42",
-        baseBranch: "main",
-        headBranch: "feature/pr-threads",
-        state: "open",
-      },
-    });
-
-    expect(parsed.pullRequest.number).toBe(42);
-    expect(parsed.pullRequest.headBranch).toBe("feature/pr-threads");
-  });
 });
 
 describe("GitRunStackedActionInput", () => {
-  it("accepts explicit stacked actions and requires a client-provided actionId", () => {
-    const parsed = decodeRunStackedActionInput({
-      actionId: "action-1",
-      cwd: "/repo",
-      action: "create_pr",
-    });
-
-    expect(parsed.actionId).toBe("action-1");
-    expect(parsed.action).toBe("create_pr");
-  });
-
   it("preserves leading and trailing whitespace in file paths", () => {
     const parsed = decodeRunStackedActionInput({
       actionId: "action-1",

@@ -1,11 +1,6 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
-import type { ReviewRenderableLineRow } from "./reviewModel";
-import {
-  highlightCodeSnippet,
-  highlightReviewSelectedLines,
-  highlightSourceFile,
-} from "./shikiReviewHighlighter";
+import { highlightSourceFile } from "./shikiReviewHighlighter";
 
 describe("highlightSourceFile", () => {
   it("preserves one highlighted token row per source line without trailing newlines", async () => {
