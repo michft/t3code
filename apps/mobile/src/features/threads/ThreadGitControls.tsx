@@ -88,6 +88,7 @@ export type ThreadGitMenuProps = {
   readonly environmentId: EnvironmentId | string;
   readonly threadId: ThreadId | string;
   readonly currentBranch: string | null;
+  readonly hasThread?: boolean;
   readonly gitStatus: VcsStatusResult | null;
   readonly publishRef: VcsNamedRef | null;
   readonly gitOperationLabel: string | null;
@@ -201,6 +202,13 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
       !input.featureBranch &&
       requiresDefaultBranchConfirmation(input.action, isDefaultRef)
     ) {
+      if (props.hasThread === false) {
+        Dialog.alert(
+          "Choose a feature branch",
+          "Switch branches before publishing changes from this draft.",
+        );
+        return;
+      }
       navigation.navigate("GitConfirm", {
         environmentId: String(environmentId),
         threadId: String(threadId),
@@ -372,8 +380,11 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
             type: "action",
           },
           {
-            description: "Turn diffs and worktree changes",
-            disabled: !model.isRepo,
+            description:
+              props.hasThread === false
+                ? "Available after the first message"
+                : "Turn diffs and worktree changes",
+            disabled: !model.isRepo || props.hasThread === false,
             icon: { name: "text.bubble", type: "sfSymbol" },
             label: "Review changes",
             onPress: model.openReview,
@@ -391,7 +402,11 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
               ]
             : []),
           {
-            description: `Changes, files, ${model.vcsPresentation.refPlural}`,
+            description:
+              props.hasThread === false
+                ? "Available after the first message"
+                : `Changes, files, ${model.vcsPresentation.refPlural}`,
+            disabled: props.hasThread === false,
             icon: { name: "ellipsis", type: "sfSymbol" },
             label: "More",
             onPress: model.openGitInspector,
@@ -552,15 +567,22 @@ function threadGitMenuDefinition(
         id: "git-review",
         title: "Review changes",
         icon: "text.bubble",
-        disabled: !model.isRepo,
-        subtitle: "Turn diffs and worktree changes",
+        disabled: !model.isRepo || props.hasThread === false,
+        subtitle:
+          props.hasThread === false
+            ? "Available after the first message"
+            : "Turn diffs and worktree changes",
         onPress: model.openReview,
       },
       {
         id: "git-more",
         title: "More",
         icon: "ellipsis",
-        subtitle: `Changes, files, ${model.vcsPresentation.refPlural}`,
+        disabled: props.hasThread === false,
+        subtitle:
+          props.hasThread === false
+            ? "Available after the first message"
+            : `Changes, files, ${model.vcsPresentation.refPlural}`,
         onPress: model.openGitInspector,
       },
     ],
