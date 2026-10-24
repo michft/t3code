@@ -288,7 +288,7 @@ export class VcsProcessExitError extends Schema.TaggedError<VcsProcessExitError>
     context: VcsProcessErrorContext,
     error: VcsProcessExitFailure,
     failureKind: VcsProcessExitFailureKind,
-    retryable?: boolean,
+    options?: { readonly retryable?: boolean; readonly notFoundDetail?: string },
   ) {
     const detail = (() => {
       switch (failureKind) {
@@ -297,11 +297,7 @@ export class VcsProcessExitError extends Schema.TaggedError<VcsProcessExitError>
         case "rate-limited":
           return "API rate limit exceeded.";
         case "not-found":
-          return context.command === "glab"
-            ? "Merge request not found."
-            : context.command === "gh" || context.command === "az"
-              ? "Pull request not found."
-              : "VCS resource not found.";
+          return options?.notFoundDetail ?? "VCS resource not found.";
         case "not-repository":
           return "The directory is not inside a Jujutsu repository.";
         case "stale-workspace":
@@ -324,7 +320,7 @@ export class VcsProcessExitError extends Schema.TaggedError<VcsProcessExitError>
       exitCode: error.exitCode,
       detail,
       failureKind,
-      ...(retryable === true ? { retryable: true } : {}),
+      ...(options?.retryable === true ? { retryable: true } : {}),
       stderrLength: error.stderr.length,
       stderrTruncated: error.stderrTruncated,
     });
