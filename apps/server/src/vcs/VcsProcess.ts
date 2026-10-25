@@ -310,7 +310,12 @@ export const make = Effect.gen(function* () {
     }
 
     if (!input.allowNonZeroExit && result.code !== 0) {
-      const failureKind = classifyNonZeroExit(input.command, result.stderr, result.code, input.classifyFailure);
+      const failureKind = classifyNonZeroExit(
+        input.command,
+        result.stderr,
+        result.code,
+        input.classifyFailure,
+      );
       const error = VcsProcessExitError.fromProcessExit(
         baseError,
         {

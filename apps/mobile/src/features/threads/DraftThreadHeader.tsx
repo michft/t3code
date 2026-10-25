@@ -66,6 +66,7 @@ export function DraftThreadHeader(props: {
         hasThread: false,
         currentBranch: props.thread.branch,
         gitStatus: status.data,
+        publishRef: null,
         gitOperationLabel: progress.currentLabel,
         canOpenTerminal: false,
         canOperateTerminal: false,

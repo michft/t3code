@@ -45,7 +45,7 @@ export interface DeleteCheckpointRefsInput {
 export class CheckpointStore extends Context.Service<
   CheckpointStore,
   {
-        readonly isGitRepository: (cwd: string) => Effect.Effect<boolean, CheckpointStoreError>;
+    readonly isGitRepository: (cwd: string) => Effect.Effect<boolean, CheckpointStoreError>;
 
     readonly captureCheckpoint: (
       input: CaptureCheckpointInput,

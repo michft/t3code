@@ -23,8 +23,6 @@ import * as VcsGitProviderCompatibility from "../vcs/VcsGitProviderCompatibility
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsDriver from "../vcs/VcsDriver.ts";
 import * as VcsSyncService from "../vcs/VcsSyncService.ts";
-import * as BitbucketApi from "@t3tools/source-control-bitbucket/server/BitbucketApi";
-import * as BitbucketSourceControlProvider from "@t3tools/source-control-bitbucket/server/BitbucketSourceControlProvider";
 import type * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
 import * as SourceControlRepositoryService from "./SourceControlRepositoryService.ts";
@@ -751,7 +749,7 @@ it.effect("publishes a new hosted jj repository through one explicit bookmark", 
     const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
     const result = yield* service.publishRepository({
       cwd: "/jj-workspace",
-      provider: "github",
+      provider: SourceControlProviderKind.make("github"),
       repository: "octocat/t3code",
       visibility: "private",
       remoteName: "origin",
@@ -762,7 +760,7 @@ it.effect("publishes a new hosted jj repository through one explicit bookmark", 
     assert.equal(publishedBookmark, publishRef.name);
     assert.deepStrictEqual(remoteCalls, [{ name: "origin", url: CLONE_URLS.sshUrl }]);
     assert.deepStrictEqual(result, {
-      repository: { provider: "github", ...CLONE_URLS },
+      repository: { provider: SourceControlProviderKind.make("github"), ...CLONE_URLS },
       remoteName: "origin",
       remoteUrl: CLONE_URLS.sshUrl,
       branch: publishRef.name,

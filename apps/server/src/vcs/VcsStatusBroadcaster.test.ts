@@ -409,12 +409,7 @@ describe("VcsStatusBroadcaster", () => {
     return Effect.gen(function* () {
       const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
       yield* broadcaster.getStatus({ cwd: "/repo" });
-      const initial = yield* Stream.runHead(
-        broadcaster.streamStatus(
-          { cwd: "/repo" },
-          { automaticRemoteRefreshInterval: Effect.succeed(Duration.zero) },
-        ),
-      );
+      const initial = yield* Stream.runHead(broadcaster.streamStatus({ cwd: "/repo" }));
 
       assert.deepStrictEqual(Option.getOrThrow(initial), {
         _tag: "snapshot",
@@ -423,12 +418,7 @@ describe("VcsStatusBroadcaster", () => {
       } satisfies VcsStatusStreamEvent);
 
       yield* broadcaster.refreshStatus("/repo");
-      const refreshed = yield* Stream.runHead(
-        broadcaster.streamStatus(
-          { cwd: "/repo" },
-          { automaticRemoteRefreshInterval: Effect.succeed(Duration.zero) },
-        ),
-      );
+      const refreshed = yield* Stream.runHead(broadcaster.streamStatus({ cwd: "/repo" }));
       assert.deepStrictEqual(Option.getOrThrow(refreshed), {
         _tag: "snapshot",
         local: baseLocalStatus,

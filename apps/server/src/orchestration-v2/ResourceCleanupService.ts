@@ -16,7 +16,13 @@ import * as TerminalManager from "../terminal/Manager.ts";
 export class ResourceCleanupError extends Schema.TaggedError<ResourceCleanupError>()(
   "ResourceCleanupError",
   {
-    operation: Schema.Literals(["terminal", "preview", "attachment", "workspace", "scheduled-tasks"]),
+    operation: Schema.Literals([
+      "terminal",
+      "preview",
+      "attachment",
+      "workspace",
+      "scheduled-tasks",
+    ]),
     threadId: Schema.optional(Schema.String),
     attachmentId: Schema.optional(Schema.String),
     cause: Schema.Defect(),
@@ -29,7 +35,7 @@ export class ResourceCleanupService extends Context.Reference<{
     threadId: string,
     workspace?: VcsWorkspaceIdentity,
   ) => Effect.Effect<void, ResourceCleanupError>;
-    readonly cleanupPreviews: (threadId: string) => Effect.Effect<void, ResourceCleanupError>;
+  readonly cleanupPreviews: (threadId: string) => Effect.Effect<void, ResourceCleanupError>;
   readonly cleanupAttachments: (
     attachmentIds: ReadonlyArray<string>,
   ) => Effect.Effect<void, ResourceCleanupError>;
@@ -62,28 +68,30 @@ export const layer = Layer.effect(
             ),
           ),
 
-      cleanupTerminals: (threadId: string, workspace?: VcsWorkspaceIdentity) =>
-        Effect.gen(function* () {
-          yield* terminals
-            .close({ threadId, deleteHistory: true })
+      cleanupTerminals: Effect.fn("ResourceCleanupService.cleanupTerminals")(function* (
+        threadId: string,
+        workspace?: VcsWorkspaceIdentity,
+      ) {
+        yield* terminals
+          .close({ threadId, deleteHistory: true })
+          .pipe(
+            Effect.mapError(
+              (cause) => new ResourceCleanupError({ operation: "terminal", threadId, cause }),
+            ),
+          );
+        if (workspace?.driverKind === "jj") {
+          yield* workspaces
+            .removeThreadWorkspace({
+              cwd: workspace.repositoryPath ?? workspace.rootPath,
+              workspace,
+            })
             .pipe(
               Effect.mapError(
-                (cause) => new ResourceCleanupError({ operation: "terminal", threadId, cause }),
+                (cause) => new ResourceCleanupError({ operation: "workspace", threadId, cause }),
               ),
             );
-          if (workspace?.driverKind === "jj") {
-            yield* workspaces
-              .removeThreadWorkspace({
-                cwd: workspace.repositoryPath ?? workspace.rootPath,
-                workspace,
-              })
-              .pipe(
-                Effect.mapError(
-                  (cause) => new ResourceCleanupError({ operation: "workspace", threadId, cause }),
-                ),
-              );
-          }
-        }),
+        }
+      }),
       cleanupPreviews: (threadId: string) =>
         previews
           .close({ threadId: ThreadId.make(threadId) })

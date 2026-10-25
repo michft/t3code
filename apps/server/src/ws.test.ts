@@ -1,3 +1,4 @@
+import * as VcsWorkspaceService from "./vcs/VcsWorkspaceService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -624,6 +625,7 @@ it.effect(
       Effect.provide(
         Layer.mergeAll(
           Layer.fresh(layerConfigSources),
+          Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({}),
           Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
           Layer.mock(ServerBrowser.ServerBrowser)({}),
         ),

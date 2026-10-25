@@ -2273,11 +2273,12 @@ it.effect("persists a jj workspace for thread setup without assigning a Git bran
         workspace: { type: "worktree", baseRef: "main" },
       });
       const launched = yield* launches.launch(input);
-      yield* waitUntil(() =>
-        threads
-          .getThreadProjection(launched.threadId)
-          .pipe(Effect.map((projection) => projection.thread.vcsWorkspace !== undefined)),
+      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+      const finished = yield* tracker.stream(launched.threadId).pipe(
+        Stream.filter((snapshot) => snapshot !== null && snapshot.phase !== "running"),
+        Stream.runHead,
       );
+      assert.equal(Option.getOrNull(finished)?.phase, "done");
       const projection = yield* threads.getThreadProjection(launched.threadId);
       assert.deepEqual(projection.thread.vcsWorkspace, workspace);
       assert.isNull(projection.thread.branch);

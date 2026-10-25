@@ -3121,7 +3121,7 @@ export const make = Effect.gen(function* () {
         });
       }
       const provider = yield* sourceControlProvider(input.cwd);
-      const terms = getChangeRequestTerminologyForKind(provider.kind);
+      const terms = sourceControlDefinitions.get(provider.kind).changeRequest;
       const existing = yield* provider.listChangeRequests({
         cwd: input.cwd,
         headSelector: publishRef.name,

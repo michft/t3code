@@ -6783,6 +6783,12 @@ const layerQueueResumeDisabledInstanceTest = Layer.mergeAll(
   EffectOutbox.layer,
   ThreadCommandExecutor.layer,
 ).pipe(
+  Layer.provide(
+    Layer.mock(VcsWorkspaceService.VcsWorkspaceService)({
+      detectKind: () => Effect.succeed("git"),
+    }),
+  ),
+
   Layer.provide(McpSessionRegistryTestkit.layer),
   Layer.provide(McpProviderSessions.layer),
   Layer.provide(SqlitePersistence.layerMemory),

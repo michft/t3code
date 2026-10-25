@@ -1,4 +1,8 @@
-import { assert, it } from "@effect/vitest";
+import { VcsRepositoryDetectionError } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+import * as Option from "effect/Option";
+import * as VcsSyncService from "../vcs/VcsSyncService.ts";
+import { assert, expect, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -52,6 +56,7 @@ function layer(input: {
   readonly manager?: Partial<GitManager.GitManager["Service"]>;
 }) {
   return GitWorkflowService.layer.pipe(
+    Layer.provide(Layer.mock(VcsSyncService.VcsSyncService)({})),
     Layer.provide(
       Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
         detect: input.detect,
@@ -253,6 +258,7 @@ it.layer(NodeServices.layer)("GitWorkflowService", (it) => {
     const status = vi.fn();
 
     const layerTest = GitWorkflowService.layer.pipe(
+      Layer.provide(Layer.mock(VcsSyncService.VcsSyncService)({})),
       Layer.provide(
         Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
           detect: () => Effect.succeed(null),

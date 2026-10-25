@@ -393,17 +393,13 @@ describe("GitHubSourceControlProvider writes", () => {
       const gh = yield* GitHubSourceControlProvider.make;
       yield* gh.createChangeRequest({
         cwd: "/repo",
-        context: {
-          ...githubContext("github.com"),
-          remoteUrl: "git@github.com:michft/t3code.git",
-        },
         baseRefName: "main",
         headSelector: "me:feature",
         title: "Title",
         bodyFile,
       });
       assert.strictEqual(requests[0]!.method, "POST");
-      assert.strictEqual(requests[0]!.path, "repos/michft/t3code/pulls");
+      assert.strictEqual(requests[0]!.path, "repos/acme/web/pulls");
       assert.strictEqual(requests[0]!.allowReserve, true);
       assert.deepStrictEqual(requests[0]!.body, {
         base: "main",

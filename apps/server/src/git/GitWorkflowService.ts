@@ -458,7 +458,10 @@ export const make = Effect.gen(function* () {
       detectRepositoryForStatus("GitWorkflowService.runStackedAction", input.cwd).pipe(
         Effect.flatMap((handle) =>
           input.featureBranch && handle?.kind === "git"
-            ? withCheckoutLease(handle.repository.rootPath, gitManager.runStackedAction(input, options))
+            ? withCheckoutLease(
+                handle.repository.rootPath,
+                gitManager.runStackedAction(input, options),
+              )
             : gitManager.runStackedAction(input, options),
         ),
       ),

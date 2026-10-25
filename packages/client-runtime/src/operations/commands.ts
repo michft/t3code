@@ -131,7 +131,7 @@ export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly branch?: string | null;
   readonly worktreePath?: string | null;
   readonly vcsWorkspace?: VcsWorkspaceIdentity | null;
-    readonly regenerateTitle?: boolean;
+  readonly regenerateTitle?: boolean;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly expectedEmpty?: boolean;
 }

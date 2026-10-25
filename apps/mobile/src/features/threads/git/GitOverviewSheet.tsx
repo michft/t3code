@@ -121,7 +121,14 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
   const hasPrimaryRemote = gitStatus.data?.hasPrimaryRemote ?? false;
   const isDefaultRef = gitStatus.data?.isDefaultRef ?? false;
 
-  const menuItems = isRepo ? buildMenuItems(gitStatus.data, busy, hasPrimaryRemote, selectedThread?.vcsWorkspace?.publishRef ?? null) : [];
+  const menuItems = isRepo
+    ? buildMenuItems(
+        gitStatus.data,
+        busy,
+        hasPrimaryRemote,
+        selectedThread?.vcsWorkspace?.publishRef ?? null,
+      )
+    : [];
 
   const sheetMenuItems = menuItems.map((item) => ({
     item: {
@@ -193,7 +200,7 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
       return;
     }
     if (!canWriteSourceControl) return;
-    if ((item.dialogAction === "commit" || item.dialogAction === "commit_push")) {
+    if (item.dialogAction === "commit" || item.dialogAction === "commit_push") {
       navigation.navigate("GitCommit", {
         environmentId: String(environmentId),
         threadId: String(threadId),
@@ -214,7 +221,10 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
     if (status == null) {
       return undefined;
     }
-    if ((item.dialogAction === "commit" || item.dialogAction === "commit_push") && status.hasWorkingTreeChanges) {
+    if (
+      (item.dialogAction === "commit" || item.dialogAction === "commit_push") &&
+      status.hasWorkingTreeChanges
+    ) {
       const fileCount = status.workingTree?.files.length ?? 0;
       return `${fileCount} file${fileCount === 1 ? "" : "s"} changed`;
     }
@@ -298,7 +308,11 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
         <ListRow
           icon="point.topleft.down.curvedto.point.bottomright.up"
           label={`${refsLabel} & ${vcsPresentation.workspacePlural}`}
-          description={canChangeThreadBranch ? `Switch ${vcsPresentation.refSingular}, create ${vcsPresentation.refSingular}, or move to a ${vcsPresentation.workspaceSingular}` : `View ${vcsPresentation.refPlural} and ${vcsPresentation.workspacePlural}`}
+          description={
+            canChangeThreadBranch
+              ? `Switch ${vcsPresentation.refSingular}, create ${vcsPresentation.refSingular}, or move to a ${vcsPresentation.workspaceSingular}`
+              : `View ${vcsPresentation.refPlural} and ${vcsPresentation.workspacePlural}`
+          }
           disabled={busy || !isRepo}
           onPress={() =>
             navigation.navigate("GitBranches", {

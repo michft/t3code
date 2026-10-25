@@ -208,7 +208,13 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
         </View>
         <View className="gap-2">
           <Button
-            label={isJjRepository ? hasJjPublishRef ? "Finalize & push" : "Finalize change" : "Commit changes"}
+            label={
+              isJjRepository
+                ? hasJjPublishRef
+                  ? "Finalize & push"
+                  : "Finalize change"
+                : "Commit changes"
+            }
             icon="checkmark"
             tone="primary"
             fullWidth

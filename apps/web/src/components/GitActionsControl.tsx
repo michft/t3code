@@ -1082,26 +1082,25 @@ export default function GitActionsControl({
   });
 
   const syncThreadAfterSourceControlAction = (result: GitRunStackedActionResult) => {
-      if (
-        activeServerThread?.vcsWorkspace &&
-        activeThreadRef &&
-        (result.commit.workspaceRevision || result.commit.publishRef)
-      ) {
-        void updateThreadMetadata({
-          environmentId: activeThreadRef.environmentId,
-          input: {
-            threadId: activeThreadRef.threadId,
-            vcsWorkspace: {
-              ...activeServerThread.vcsWorkspace,
-              workspaceRevision:
-                result.commit.workspaceRevision ??
-                activeServerThread.vcsWorkspace.workspaceRevision,
-              ...(result.commit.publishRef ? { publishRef: result.commit.publishRef } : {}),
-            },
+    if (
+      activeServerThread?.vcsWorkspace &&
+      activeThreadRef &&
+      (result.commit.workspaceRevision || result.commit.publishRef)
+    ) {
+      void updateThreadMetadata({
+        environmentId: activeThreadRef.environmentId,
+        input: {
+          threadId: activeThreadRef.threadId,
+          vcsWorkspace: {
+            ...activeServerThread.vcsWorkspace,
+            workspaceRevision:
+              result.commit.workspaceRevision ?? activeServerThread.vcsWorkspace.workspaceRevision,
+            ...(result.commit.publishRef ? { publishRef: result.commit.publishRef } : {}),
           },
-        });
-        return;
-      }
+        },
+      });
+      return;
+    }
 
     const branchUpdate = resolveThreadBranchUpdate(result);
     if (!branchUpdate) {
@@ -1796,7 +1795,9 @@ export default function GitActionsControl({
               onClick={() => initializeRepository("jj")}
             >
               <JujutsuIcon className="size-3.5" aria-hidden />
-              <span className={cn(isPanel && THREAD_DETAILS_PANEL_LABEL_CLASS)}>{initJjAction.isPending ? "Initializing..." : "Initialize Jujutsu"}</span>
+              <span className={cn(isPanel && THREAD_DETAILS_PANEL_LABEL_CLASS)}>
+                {initJjAction.isPending ? "Initializing..." : "Initialize Jujutsu"}
+              </span>
             </ThreadDetailsControl>
           ) : null}
         </ActionGroup>

@@ -1,4 +1,3 @@
-import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@t3tools/shared/git";
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
@@ -451,13 +450,6 @@ export const make = Effect.gen(function* () {
       const envRepository = environment.GH_REPO?.trim();
       const hostHint = input.host ?? contextHost(input.context);
       const defaultHost = (hostHint ?? environment.GH_HOST ?? "github.com").toLowerCase();
-      const contextualRepository = parseGitHubRepositoryNameWithOwnerFromRemoteUrl(
-        input.context?.remoteUrl ?? null,
-      );
-      if (contextualRepository !== null) {
-        const locator = parseGitHubRepositorySelector(contextualRepository, defaultHost);
-        if (locator !== null) return locator;
-      }
       if (envRepository) {
         const locator = parseGitHubRepositorySelector(envRepository, defaultHost);
         if (locator !== null) return locator;

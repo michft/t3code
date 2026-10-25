@@ -2797,11 +2797,17 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         remoteName: "origin",
         target: { commitId: "published-commit", changeId: "published-change" },
       };
-      const createdPr =
-        '[{"number":106,"title":"Phase 6 change request","url":"https://github.com/michft/t3code/pull/106","baseRefName":"main","headRefName":"feature/phase-6-pr","state":"OPEN"}]';
+      const createdPr = {
+        number: 106,
+        title: "Phase 6 change request",
+        url: "https://github.com/michft/t3code/pull/106",
+        baseRefName: "main",
+        headRefName: "feature/phase-6-pr",
+        state: "open" as const,
+      };
       let observedBaseRevision: string | null = null;
-      const { manager, ghCalls } = yield* makeManager({
-        ghScenario: { prListSequence: ["[]", createdPr], defaultBranch: "main" },
+      const { manager, providerCalls } = yield* makeManager({
+        providerScenario: { prListSequence: [[], [createdPr]], defaultBranch: "main" },
         vcsChangeService: {
           detectKind: () => Effect.succeed("jj"),
           prepareMessageContext: () => Effect.die("unexpected jj change context"),
@@ -2834,10 +2840,9 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         headBranch: publishRef.name,
       });
       expect(observedBaseRevision).toBe(baseRevision);
-      expect(ghCalls.some((call) => call.includes(`--head ${publishRef.name}`))).toBe(true);
-      expect(
-        ghCalls.some((call) => call.includes("pr create") && call.includes(publishRef.name)),
-      ).toBe(true);
+      expect(created(providerCalls)).toEqual([
+        { baseRefName: "main", headSelector: publishRef.name },
+      ]);
     }),
   );
 
@@ -3969,130 +3974,6 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     }),
   );
 
-  it.effect("surfaces missing gh binary errors", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      yield* runGit(repoDir, ["checkout", "-b", "feature/gh-missing"]);
-      const remoteDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
-      yield* runGit(repoDir, ["push", "-u", "origin", "feature/gh-missing"]);
-
-      const { manager } = yield* makeManager({
-        ghScenario: {
-          failWith:
-            "No GitHub credential on the server. Set GH_TOKEN, or install the GitHub CLI and run `gh auth login`.",
-        },
-      });
-
-      const errorMessage = yield* runStackedAction(manager, {
-        cwd: repoDir,
-        action: "commit_push_pr",
-      }).pipe(
-        Effect.flip,
-        Effect.map((error) => error.message),
-      );
-      expect(errorMessage).toContain("No GitHub credential on the server");
-    }),
-  );
-
-  it.effect("surfaces gh auth errors with guidance", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      yield* runGit(repoDir, ["checkout", "-b", "feature/gh-auth"]);
-      const remoteDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
-      yield* runGit(repoDir, ["push", "-u", "origin", "feature/gh-auth"]);
-
-      const { manager } = yield* makeManager({
-        ghScenario: {
-          failWith: "GitHub is not authenticated. Run `gh auth login` (or set GH_TOKEN) and retry.",
-        },
-      });
-
-      const errorMessage = yield* runStackedAction(manager, {
-        cwd: repoDir,
-        action: "commit_push_pr",
-      }).pipe(
-        Effect.flip,
-        Effect.map((error) => error.message),
-      );
-      expect(errorMessage).toContain("gh auth login");
-    }),
-  );
-
-  it.effect("resolves pull requests from #number references", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-
-      const { manager, ghCalls } = yield* makeManager({
-        ghScenario: {
-          pullRequest: {
-            number: 42,
-            title: "Resolve PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/42",
-            baseRefName: "main",
-            headRefName: "feature/resolve-pr",
-            state: "open",
-          },
-        },
-      });
-
-      const result = yield* resolvePullRequest(manager, {
-        cwd: repoDir,
-        reference: "#42",
-      });
-
-      expect(result.pullRequest).toEqual({
-        number: 42,
-        title: "Resolve PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/42",
-        baseBranch: "main",
-        headBranch: "feature/resolve-pr",
-        state: "open",
-      });
-      expect(ghCalls.some((call) => call.startsWith("pr view 42 "))).toBe(true);
-    }),
-  );
-
-  it.effect("prepares pull request threads in local mode by checking out the PR branch", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      yield* runGit(repoDir, ["checkout", "-b", "feature/pr-local"]);
-      NodeFS.writeFileSync(NodePath.join(repoDir, "local.txt"), "local\n");
-      yield* runGit(repoDir, ["add", "local.txt"]);
-      yield* runGit(repoDir, ["commit", "-m", "Local PR branch"]);
-
-      const { manager, ghCalls } = yield* makeManager({
-        ghScenario: {
-          pullRequest: {
-            number: 64,
-            title: "Local PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/64",
-            baseRefName: "main",
-            headRefName: "feature/pr-local",
-            state: "open",
-          },
-        },
-      });
-
-      const result = yield* preparePullRequestThread(manager, {
-        cwd: repoDir,
-        reference: "#64",
-        mode: "local",
-      });
-
-      expect(result.branch).toBe("feature/pr-local");
-      expect(result.worktreePath).toBeNull();
-      const branch = (yield* runGit(repoDir, ["branch", "--show-current"])).stdout.trim();
-      expect(branch).toBe("feature/pr-local");
-      expect(ghCalls).toContain("pr checkout 64");
-    }),
-  );
-
   it.effect("routes Jujutsu pull request preparation through the review service", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -4100,8 +3981,8 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       const reviewCalls: Array<
         Parameters<VcsReviewService.VcsReviewService["Service"]["prepareReview"]>[0]
       > = [];
-      const { manager, ghCalls } = yield* makeManager({
-        ghScenario: {
+      const { manager, providerCalls } = yield* makeManager({
+        providerScenario: {
           pullRequest: {
             number: 67,
             title: "JJ review",
@@ -4144,7 +4025,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
           mode: "local",
         },
       ]);
-      expect(ghCalls).not.toContain("pr checkout 67 --force");
+      expect(providerCalls.some((call) => call.operation === "checkoutChangeRequest")).toBe(false);
       const threadId = asThreadId("thread-jj-worktree-review");
 
       yield* preparePullRequestThread(manager, {
@@ -4251,6 +4132,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         const events: string[] = [];
         const workflows = yield* Effect.forEach([0, 1], () =>
           GitWorkflowService.make.pipe(
+            Effect.provide(Layer.mock(VcsSyncService.VcsSyncService)({})),
             // Cache the real filesystem result so startImmediately reaches lease acquisition.
             Effect.provideService(FileSystem.FileSystem, {
               ...fileSystem,

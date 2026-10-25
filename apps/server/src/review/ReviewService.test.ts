@@ -28,7 +28,11 @@ function layer(input: {
 }) {
   const projectRoots = input.projectRoots ?? [];
   return ReviewService.layer.pipe(
-    Layer.provide(Layer.mock(VcsGitProviderCompatibility.VcsGitProviderCompatibility)({ git: {} as GitVcsDriver.GitVcsDriver["Service"] })),
+    Layer.provide(
+      Layer.mock(VcsGitProviderCompatibility.VcsGitProviderCompatibility)({
+        git: {} as GitVcsDriver.GitVcsDriver["Service"],
+      }),
+    ),
     Layer.provide(KnownWorkspaces.layer),
     Layer.provide(
       Layer.effectDiscard(

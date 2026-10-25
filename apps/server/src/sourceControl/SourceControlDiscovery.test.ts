@@ -39,7 +39,13 @@ const run = (
             cause: new Error(`${input.command} not found`),
           }),
         )
-      : Effect.succeed(TestSourceControlHost.processOutput(input.command === "jj" ? `jj ${JJ_MINIMUM_SUPPORTED_VERSION}\n` : `${input.command} version test\n`));
+      : Effect.succeed(
+          TestSourceControlHost.processOutput(
+            input.command === "jj"
+              ? `jj ${JJ_MINIMUM_SUPPORTED_VERSION}\n`
+              : `${input.command} version test\n`,
+          ),
+        );
   }
   return Effect.succeed(
     TestSourceControlHost.processOutput(`signed in as ${input.command}-user\n`),
@@ -58,31 +64,32 @@ const cliDiscovery = (name: string) => ({
     providerAuth({ status: "authenticated", account: /as (\S+)/.exec(stdout)?.[1] }),
 });
 
-const layerDiscovery = (vcsRun: typeof run = run) => Layer.effect(
-  SourceControlProviderRegistry.SourceControlProviderRegistry,
-  SourceControlProviderRegistry.makeWithProviders(
-    [
-      cliDiscovery("alpha"),
-      cliDiscovery("beta"),
-      fakeDiscovery("gamma", {
-        probeAuth: Effect.succeed(providerAuth({ status: "authenticated", account: "api-user" })),
-      }),
-    ].map((discovery) => ({
-      kind: discovery.kind,
-      provider: fakeSourceControlProvider(discovery.kind),
-      discovery,
-    })),
-  ),
-).pipe(
-  Layer.provideMerge(TestSourceControlHost.layer({ process: { run } })),
-  Layer.provideMerge(ServerSettings.ServerSettingsService.layerTest()),
-  Layer.provideMerge(Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({})),
-  Layer.provideMerge(Layer.mock(VcsProcess.VcsProcess)({ run: vcsRun })),
-  Layer.provideMerge(
-    ServerConfig.layerTest(process.cwd(), { prefix: "t3-source-control-discovery-" }),
-  ),
-  Layer.provideMerge(NodeServices.layer),
-);
+const layerDiscovery = (vcsRun: typeof run = run) =>
+  Layer.effect(
+    SourceControlProviderRegistry.SourceControlProviderRegistry,
+    SourceControlProviderRegistry.makeWithProviders(
+      [
+        cliDiscovery("alpha"),
+        cliDiscovery("beta"),
+        fakeDiscovery("gamma", {
+          probeAuth: Effect.succeed(providerAuth({ status: "authenticated", account: "api-user" })),
+        }),
+      ].map((discovery) => ({
+        kind: discovery.kind,
+        provider: fakeSourceControlProvider(discovery.kind),
+        discovery,
+      })),
+    ),
+  ).pipe(
+    Layer.provideMerge(TestSourceControlHost.layer({ process: { run } })),
+    Layer.provideMerge(ServerSettings.ServerSettingsService.layerTest()),
+    Layer.provideMerge(Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({})),
+    Layer.provideMerge(Layer.mock(VcsProcess.VcsProcess)({ run: vcsRun })),
+    Layer.provideMerge(
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-source-control-discovery-" }),
+    ),
+    Layer.provideMerge(NodeServices.layer),
+  );
 
 it.effect("reports every hosting integration in registry order with its sign-in", () =>
   Effect.gen(function* () {
@@ -135,13 +142,31 @@ it.effect("reports unsupported and unparseable jj versions", () =>
   Effect.gen(function* () {
     for (const output of ["jj 0.41.0\n", ""]) {
       const discovery = yield* SourceControlDiscovery.SourceControlDiscovery.pipe(
-        Effect.provide(SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscovery((input) => input.command === "jj" ? Effect.succeed(TestSourceControlHost.processOutput("warning: development build\n", { stderr: output })) : run(input))))),
+        Effect.provide(
+          SourceControlDiscovery.layer.pipe(
+            Layer.provide(
+              layerDiscovery((input) =>
+                input.command === "jj"
+                  ? Effect.succeed(
+                      TestSourceControlHost.processOutput("warning: development build\n", {
+                        stderr: output,
+                      }),
+                    )
+                  : run(input),
+              ),
+            ),
+          ),
+        ),
       );
       const result = yield* discovery.discover;
       const jj = result.versionControlSystems.find((item) => item.kind === "jj");
       assert.ok(jj);
       assert.strictEqual(jj.status, "unsupported");
-      if (output) assert.strictEqual(Option.getOrNull(jj.detail), `Jujutsu 0.41.0 is unsupported. T3 Code requires jj ${JJ_MINIMUM_SUPPORTED_VERSION} or newer.`);
+      if (output)
+        assert.strictEqual(
+          Option.getOrNull(jj.detail),
+          `Jujutsu 0.41.0 is unsupported. T3 Code requires jj ${JJ_MINIMUM_SUPPORTED_VERSION} or newer.`,
+        );
       else assert.isTrue(Option.isNone(jj.version));
     }
   }),
