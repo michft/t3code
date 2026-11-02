@@ -1,36 +1,36 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 
-// Settings, Usage, and Pull Requests replace the sidebar utility row with a
-// Back button. Everything else is the main app. Legacy `/projects/<key>` links
-// redirect into settings, so they count too and are never remembered.
+/** Settings and Usage open as modals over the last main-app view. */
+export function isAppModalPage(pathname: string) {
+  return pathname === "/settings" || pathname.startsWith("/settings/") || pathname === "/usage";
+}
+
 export function isSidebarUtilityPage(pathname: string) {
-  return (
-    pathname === "/settings" ||
-    pathname.startsWith("/settings/") ||
-    pathname.startsWith("/projects/") ||
-    pathname === "/usage" ||
-    pathname === "/pull-requests"
-  );
+  return pathname.startsWith("/projects/") || pathname === "/pull-requests";
 }
 
 let mainAppHref: string | null = null;
+let appModalReturnHref: string | null = null;
 
-// Mount once in the app shell. Records the latest main app URL so Back can
-// return there no matter how many utility pages were visited since.
 export function MainAppLocationTracker() {
-  const href = useLocation({
-    select: (location) => (isSidebarUtilityPage(location.pathname) ? null : location.href),
-  });
+  const href = useLocation({ select: (location) => location.href });
+  const pathname = useLocation({ select: (location) => location.pathname });
   useEffect(() => {
-    if (href !== null) mainAppHref = href;
-  }, [href]);
+    if (isAppModalPage(pathname)) return;
+    appModalReturnHref = href;
+    if (!isSidebarUtilityPage(pathname)) mainAppHref = href;
+  }, [href, pathname]);
   return null;
 }
 
-// Leaves a utility page for the last main app URL, or the thread list when
-// the app was opened directly on a utility page.
 export function useNavigateToMainApp() {
   const navigate = useNavigate();
-  return useCallback(() => navigate({ href: mainAppHref ?? "/" }), [navigate]);
+  return () => navigate({ href: mainAppHref ?? "/" });
+}
+
+/** Leaves Settings or Usage for the page that opened it. */
+export function useCloseAppModal() {
+  const navigate = useNavigate();
+  return () => navigate({ href: appModalReturnHref ?? mainAppHref ?? "/" });
 }

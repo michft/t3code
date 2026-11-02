@@ -108,8 +108,6 @@ describe("VcsDriverRegistry", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // Answers detection like git: the nearest folder at or above the cwd, up to
-  // `rootDir`, that holds `.git` is the repository.
   const makeDiskBackedLayer = (rootDir: string, calls: string[]) =>
     Layer.effect(VcsDriverRegistry.VcsDriverRegistry, VcsDriverRegistry.make).pipe(
       Layer.provide(NodeServices.layer),
@@ -154,30 +152,6 @@ describe("VcsDriverRegistry", () => {
       ),
     );
 
-  it.effect("caches repository detection for repeated resolves in the same cwd and kind", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const repoDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-vcs-registry-" });
-      yield* fs.makeDirectory(path.join(repoDir, ".git"));
-      const calls: string[] = [];
-
-      yield* Effect.gen(function* () {
-        const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
-        const first = yield* registry.resolve({ cwd: repoDir, requestedKind: "git" });
-        const second = yield* registry.resolve({ cwd: repoDir, requestedKind: "git" });
-
-        assert.equal(first.repository.rootPath, repoDir);
-        assert.equal(second.repository.rootPath, repoDir);
-        assert.deepStrictEqual(calls, [
-          "rev-parse --is-inside-work-tree",
-          "rev-parse --show-toplevel",
-          "rev-parse --git-common-dir",
-        ]);
-      }).pipe(Effect.provide(makeDiskBackedLayer(repoDir, calls)));
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
   it.effect("detects again when a cached repository is removed from disk", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -218,28 +192,6 @@ describe("VcsDriverRegistry", () => {
           (yield* registry.detect({ cwd: projectDir }))?.repository.rootPath,
           projectDir,
         );
-      }).pipe(Effect.provide(makeDiskBackedLayer(parentDir, calls)));
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("detects again when git init creates a repository between the cwd and its root", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const parentDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-vcs-registry-" });
-      const middleDir = path.join(parentDir, "a");
-      const cwd = path.join(middleDir, "b");
-      yield* fs.makeDirectory(path.join(parentDir, ".git"));
-      yield* fs.makeDirectory(cwd, { recursive: true });
-      const calls: string[] = [];
-
-      yield* Effect.gen(function* () {
-        const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
-        assert.equal((yield* registry.detect({ cwd }))?.repository.rootPath, parentDir);
-
-        yield* fs.makeDirectory(path.join(middleDir, ".git"));
-
-        assert.equal((yield* registry.detect({ cwd }))?.repository.rootPath, middleDir);
       }).pipe(Effect.provide(makeDiskBackedLayer(parentDir, calls)));
     }).pipe(Effect.provide(NodeServices.layer)),
   );

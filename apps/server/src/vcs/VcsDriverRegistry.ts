@@ -17,9 +17,7 @@ import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
 
 const DETECTION_CACHE_CAPACITY = 2_048;
-// Status polls detect every open cwd each tick, and detection costs three git
-// processes. `detect` re-checks each hit against the disk, so this TTL only
-// bounds rare changes those stats cannot see.
+// Detection costs three git processes per cwd; cached hits still stat disk, so TTL bounds only undetectable changes.
 const DETECTION_CACHE_TTL = Duration.minutes(5);
 
 export interface VcsDriverResolveInput {
@@ -127,9 +125,7 @@ export const make = Effect.gen(function* () {
     return yield* detectWithDriver("git", git, input.cwd);
   });
 
-  // The cwd and each parent below the repository root. A new `.git` in any of
-  // them means `git init` made a nested repository. Falls back to the cwd alone
-  // when the root is not above it, such as a cwd reached through a symlink.
+  // Symlinks can put cwd outside root; then inspect cwd alone.
   const foldersBelowRoot = (cwd: string, rootPath: string) => {
     const relative = path.relative(path.resolve(rootPath), path.resolve(cwd));
     if (relative.startsWith("..") || path.isAbsolute(relative)) return [cwd];
@@ -138,7 +134,6 @@ export const make = Effect.gen(function* () {
     );
   };
 
-  // What `detect` re-checks on every cache hit, using stats instead of git.
   const readDiskState = (cwd: string, repository: VcsRepositoryIdentity) =>
     Effect.all({
       gitEntries: Effect.forEach(foldersBelowRoot(cwd, repository.rootPath), (folder) =>
@@ -174,8 +169,6 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  // A hit is stale when its worktree or `.git` folder was removed, or when
-  // `git init` created a nested repository between the cwd and its root.
   const detect: VcsDriverRegistry["Service"]["detect"] = Effect.fn("VcsDriverRegistry.detect")(
     function* (input) {
       const requestedKind = yield* projectConfig.resolveKind(input);

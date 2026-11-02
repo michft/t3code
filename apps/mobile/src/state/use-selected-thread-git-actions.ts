@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo } from "react";
 
 import { EnvironmentProject, EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
@@ -41,7 +41,8 @@ export function useSelectedThreadGitActions() {
   const createRef = useAtomCommand(vcsEnvironment.createRef, { reportFailure: false });
   const createWorktree = useAtomCommand(vcsEnvironment.createWorktree, { reportFailure: false });
   const pull = useAtomCommand(vcsEnvironment.pull, { reportFailure: false });
-  const { selectedThread, selectedThreadProject } = useThreadSelection();
+  const { selectedThread, selectedThreadProject, selectedEnvironmentRuntime } =
+    useThreadSelection();
   const canWriteSourceControl = useEnvironmentScope(
     selectedThread?.environmentId ?? null,
     AuthSourceControlWriteScope,
@@ -142,12 +143,32 @@ export function useSelectedThreadGitActions() {
     [refreshStatus, selectedThread, selectedThreadCwd, selectedThreadProject],
   );
 
+  // Key refreshes on primitives; streaming frequently replaces the selected thread object.
+  const selectedEnvironmentId = selectedThread?.environmentId ?? null;
+  const selectedThreadId = selectedThread?.id ?? null;
+  const hasSelectedThreadProject = selectedThreadProject !== null;
+  const isEnvironmentConnected = selectedEnvironmentRuntime?.connectionState === "connected";
+  const refreshOnSelection = useEffectEvent(() => {
+    void refreshSelectedThreadGitStatus({ quiet: true });
+  });
   useEffect(() => {
-    if (!selectedThread || !selectedThreadProject) {
+    if (
+      selectedEnvironmentId === null ||
+      selectedThreadId === null ||
+      !hasSelectedThreadProject ||
+      selectedThreadCwd === null ||
+      !isEnvironmentConnected
+    ) {
       return;
     }
-    void refreshSelectedThreadGitStatus({ quiet: true });
-  }, [refreshSelectedThreadGitStatus, selectedThread, selectedThreadProject]);
+    refreshOnSelection();
+  }, [
+    selectedEnvironmentId,
+    selectedThreadId,
+    hasSelectedThreadProject,
+    selectedThreadCwd,
+    isEnvironmentConnected,
+  ]);
 
   const runSelectedThreadGitMutation = useCallback(
     async <T, E>(
@@ -215,9 +236,7 @@ export function useSelectedThreadGitActions() {
         readonly vcsWorkspace?: EnvironmentThreadShell["vcsWorkspace"];
       };
     }): Promise<AtomCommandResult<void, unknown>> => {
-      // The Git mutation already landed; refresh what the worktree shows even
-      // when the thread metadata update is denied, so the sheet does not keep
-      // displaying the previous branch.
+      // Git already changed; refresh even if metadata updates fail so the sheet shows the current branch.
       const updateResult = input.nextThreadState
         ? await updateThreadGitContext(input.thread, input.nextThreadState)
         : AsyncResult.success(undefined);
@@ -410,7 +429,6 @@ export function useSelectedThreadGitActions() {
             ...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
             ...(input.featureBranch ? { featureBranch: input.featureBranch } : {}),
             ...(input.filePaths?.length ? { filePaths: [...input.filePaths] } : {}),
-            // A pull request the action opens is linked to the thread it ran beside.
             threadId: thread.id,
             ...(!input.featureBranch && thread.vcsWorkspace?.publishRef
               ? { publishRef: thread.vcsWorkspace.publishRef }

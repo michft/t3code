@@ -1,8 +1,9 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import Settled from "./Migrations/033_ProjectionThreadsSettled.ts";
+import SnapshotIndexes from "./Migrations/060_ThreadSnapshotWindowIndexes.ts";
 
-/** The fork shipped jj metadata at id 33 before upstream assigned settlement to it. */
+/** The fork shipped jj metadata under migration ids later assigned by upstream. */
 export const reconcileForkJjMigration = Effect.fn("reconcileForkJjMigration")(function* () {
   const sql = yield* SqlClient.SqlClient;
   return yield* sql.withTransaction(
@@ -12,10 +13,16 @@ export const reconcileForkJjMigration = Effect.fn("reconcileForkJjMigration")(fu
       if (tables.length === 0) return;
       const rows =
         yield* sql`SELECT name FROM effect_sql_migrations WHERE migration_id = 33 AND name = 'ProjectionThreadVcsWorkspace'`;
-      if (rows.length === 0) return;
-      // Retain vcs_workspace_json and install the upstream schema even when later ids exist.
-      yield* Settled;
-      yield* sql`UPDATE effect_sql_migrations SET name = 'ProjectionThreadsSettled' WHERE migration_id = 33 AND name = 'ProjectionThreadVcsWorkspace'`;
+      if (rows.length !== 0) {
+        yield* Settled;
+        yield* sql`UPDATE effect_sql_migrations SET name = 'ProjectionThreadsSettled' WHERE migration_id = 33 AND name = 'ProjectionThreadVcsWorkspace'`;
+      }
+      const forkWorkspace =
+        yield* sql`SELECT name FROM effect_sql_migrations WHERE migration_id = 60 AND name = 'ForkThreadVcsWorkspace'`;
+      if (forkWorkspace.length !== 0) {
+        yield* SnapshotIndexes;
+        yield* sql`UPDATE effect_sql_migrations SET name = 'ThreadSnapshotWindowIndexes' WHERE migration_id = 60 AND name = 'ForkThreadVcsWorkspace'`;
+      }
     }),
   );
 });

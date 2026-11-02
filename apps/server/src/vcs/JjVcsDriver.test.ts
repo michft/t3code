@@ -8,7 +8,7 @@ import type * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/process";
 
 import { CheckpointRef, VcsProcessExitError, type VcsError } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import * as ServerConfig from "../config.ts";
 import { parseTurnDiffFilesFromUnifiedDiff } from "./JjDiffs.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";

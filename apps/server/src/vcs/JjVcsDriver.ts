@@ -14,7 +14,7 @@ import {
   type VcsListRemotesResult,
   type VcsRef,
 } from "@t3tools/contracts";
-import { detectSourceControlProviderFromGitRemoteUrl } from "@t3tools/shared/git";
+import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import {
   JJ_BOOKMARK_JSON_TEMPLATE,
   JJ_CHANGED_FILE_JSON_TEMPLATE,
@@ -580,7 +580,7 @@ export const make = Effect.gen(function* () {
       state.remotesResult.remotes.find((remote) => remote.isPrimary) ??
       state.remotesResult.remotes[0];
     const sourceControlProvider = primaryRemote
-      ? detectSourceControlProviderFromGitRemoteUrl(primaryRemote.url)
+      ? sourceControlDefinitions.recognizeRemote(primaryRemote.url)
       : null;
 
     return {
@@ -1030,6 +1030,9 @@ export const make = Effect.gen(function* () {
       }
       return result.stdout;
     }),
+
+    // Jujutsu checkpoints capture the working revision, so retain the complete turn diff.
+    listAuthoredPaths: () => Effect.succeed(null),
 
     deleteCheckpointRefs: Effect.fn("JjVcsDriver.checkpoints.deleteCheckpointRefs")(
       function* (input) {
